@@ -1,0 +1,2 @@
+# factful
+Substack articles generator
