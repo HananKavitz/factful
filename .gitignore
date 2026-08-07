@@ -1,0 +1,33 @@
+# Documentation
+docs/
+
+# Dependencies
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.Python
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Environment / secrets
+.env
+.env.*
+config/substack.toml
+*.local
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+output/

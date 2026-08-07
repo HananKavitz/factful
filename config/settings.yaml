@@ -1,0 +1,9 @@
+pipeline:
+  max_passes: 3
+  epsilon: 1.0
+  delta: 0.5
+  score_accept: 85
+  revision_mode: patch
+
+corroboration:
+  min_sources: 2

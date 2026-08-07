@@ -35,7 +35,7 @@ uv sync                                   # install deps
 uv run pytest                             # run tests
 uv run ruff check .                       # lint
 uv run ruff format --check .              # format check
-uv run mypy factful                       # type check
+uv run mypy -p factful                    # type check
 uv run uvicorn factful.api:app --reload   # run dev server
 ```
 
