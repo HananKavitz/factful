@@ -28,7 +28,7 @@ jobs:
         run: uv sync
 
       - name: Run tests
-        run: uv run pytest --junitxml=pytest.xml
+        run: uv run pytest -rA --junitxml=pytest.xml
 
       - name: Report test results
         if: always()
@@ -37,6 +37,7 @@ jobs:
           name: Pytest results
           path: pytest.xml
           reporter: java-junit
+          use-actions-summary: false
 
       - name: Lint
         run: uv run ruff check .
