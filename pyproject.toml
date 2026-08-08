@@ -18,6 +18,7 @@ factful = "factful.cli:main"
 dev = [
     "mypy>=1.10",
     "pytest>=8.0",
+    "pytest-cov>=5.0",
     "ruff>=0.5",
     "types-PyYAML>=6.0",
 ]
@@ -48,6 +49,13 @@ python_version = "3.11"
 mypy_path = "src"
 files = ["src/factful"]
 strict = true
+
+[tool.coverage.run]
+branch = true
+source = ["factful"]
+
+[tool.coverage.report]
+show_missing = true
 
 [tool.uv]
 package = true
