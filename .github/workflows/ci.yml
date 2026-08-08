@@ -28,7 +28,7 @@ jobs:
         run: uv sync
 
       - name: Run tests
-        run: uv run pytest -rA --cov=factful --cov-report=term-missing --cov-report=xml:coverage.xml
+        run: uv run pytest -rA --junitxml=pytest.xml --cov=factful --cov-report=term-missing --cov-report=xml:coverage.xml
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
