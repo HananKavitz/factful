@@ -20,6 +20,7 @@ class Corroboration(BaseModel):
 
 
 class LLM(BaseModel):
+    base_url: str = Field(default="https://openrouter.ai/api/v1")
     models: dict[str, str] = Field(default_factory=dict)
 
 

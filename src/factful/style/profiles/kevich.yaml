@@ -1,0 +1,102 @@
+name: kevich
+metrics:
+  avg_sentence_words: 17.65
+  avg_paragraph_sentences: 4.0
+  paragraph_length_dist:
+  - 2
+  - 6
+  - 4
+  - 1
+  - 5
+  - 5
+  - 6
+  - 7
+  - 3
+  - 5
+  - 7
+  - 2
+  - 3
+  - 2
+  - 6
+  - 2
+  - 3
+  - 5
+  - 2
+  - 3
+  - 5
+  - 5
+  - 7
+  - 3
+  - 3
+  - 3
+  - 5
+  - 2
+  numeric_density: 0.089
+extraction:
+  voice: long-form, opinionated, conversational-essay
+  tone: acerbic, skeptical, derisive, dry-humour, provocateur
+  hook_patterns:
+  - declarative context
+  - rhetorical question
+  - direct address
+  story_beats:
+  - opening context
+  - thesis
+  - bold-name profile leads (Nasser, Saddam, Gaddafi)
+  - Future Outlook
+  - one-line clincher
+  transitions:
+  - however
+  - but
+  - still
+  - while
+  - on the other hand
+  - for example
+  rhetorical_devices:
+  - label: rhetorical-question
+    count: 9
+    excerpt: Why do the Arab Gulf states not fight? Why don't the proud Arabs fight
+      when they are attacked?
+  - label: question-burst
+    count: 2
+    excerpt: Where is the Arab self-esteem and pride? Lost in the desert sands?
+  direct_address:
+  - label: dear-reader
+    count: 3
+    excerpt: Dear reader, are you ready to die for Qatar?
+  - label: hypothetical-you
+    count: 2
+    excerpt: What if the world found out it is all for show?
+  characterization:
+  - label: sarcastic-jab
+    count: 5
+    excerpt: the fat Sheikhs, golden palaces, a joke even in the Arab world
+  - label: hyperbolic-concrete
+    count: 4
+    excerpt: the hundreds of billions of dollars the fat Sheikhs paid for American
+      protection
+  - label: wealth-rhetoric
+    count: 2
+    excerpt: An owner of a 500M dollar super yacht is not going to unite the Arabs
+  opinion_hedges:
+  - I don't believe for a second
+  - I think
+  - I find it is too early
+  - I would welcome it
+  - As I stated
+  comparatives:
+  - more than any other monarchy
+  - more of a threat to Israel than
+  - second-largest F-15 fleet
+  - a drop in the ocean compared to
+  modals:
+  - probably
+  - seemingly
+  - might
+  - could
+  - what if
+  numeric_style: 'precise and round mixed: 400M dollar planes, hundreds of billions
+    of dollars, 3 US F-15s, 8 centuries'
+  cta_style: null
+  signoff_style: null
+source_confidence: 1.0
