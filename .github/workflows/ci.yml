@@ -35,6 +35,8 @@ jobs:
         with:
           files: coverage.xml
           fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Report test results
         if: always()
