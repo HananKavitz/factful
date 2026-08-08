@@ -23,6 +23,18 @@ class Gather(BaseModel):
     max_sources: int = Field(default=10, ge=1)
 
 
+class Retrieval(BaseModel):
+    top_k_passages: int = Field(default=3, ge=1)
+
+
+class Verify(BaseModel):
+    max_currency_years: float = Field(default=2.0, ge=0.0)
+
+
+class Writer(BaseModel):
+    profile: str = Field(default="kevich", min_length=1)
+
+
 class LLM(BaseModel):
     base_url: str = Field(default="https://openrouter.ai/api/v1")
     models: dict[str, str] = Field(default_factory=dict)
@@ -34,6 +46,9 @@ class Settings(BaseModel):
     pipeline: Pipeline = Field(default_factory=Pipeline)
     corroboration: Corroboration = Field(default_factory=Corroboration)
     gather: Gather = Field(default_factory=Gather)
+    retrieval: Retrieval = Field(default_factory=Retrieval)
+    verify: Verify = Field(default_factory=Verify)
+    writer: Writer = Field(default_factory=Writer)
     llm: LLM = Field(default_factory=LLM)
 
 

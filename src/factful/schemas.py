@@ -37,6 +37,17 @@ class ClaimMineOutput(BaseModel):
     claims: list[MinedClaim] = Field(default_factory=list)
 
 
+class AttributionVerdict(BaseModel):
+    status: Literal["supported", "unsupported"]
+    confidence: float = Field(ge=0.0, le=1.0)
+    reason: str
+
+
+class Draft(BaseModel):
+    title: str = Field(min_length=1)
+    markdown: str = Field(min_length=1)
+
+
 class FactVerdict(BaseModel):
     claim_id: str
     status: Literal["verified", "unverified", "contradicted", "unsupported"]

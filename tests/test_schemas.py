@@ -3,7 +3,15 @@ from datetime import datetime
 import pytest
 from pydantic import ValidationError
 
-from factful.schemas import Citation, CritiqueReport, Issue, SourceBundle
+from factful.schemas import (
+    AttributionVerdict,
+    Citation,
+    CritiqueReport,
+    Draft,
+    FactVerdict,
+    Issue,
+    SourceBundle,
+)
 
 
 def make_citation(**overrides: object) -> dict[str, object]:
@@ -59,3 +67,29 @@ def test_critique_score_bounds() -> None:
 def test_critique_verdict_enum() -> None:
     with pytest.raises(ValidationError):
         CritiqueReport.model_validate({"score": 50, "issues": [], "verdict": "maybe"})
+
+
+def test_attribution_verdict_status_enum() -> None:
+    verdict = AttributionVerdict(status="supported", confidence=0.9, reason="ok")
+    assert verdict.status == "supported"
+    with pytest.raises(ValidationError):
+        AttributionVerdict(status="maybe", confidence=0.5, reason="x")
+
+
+def test_draft_requires_content() -> None:
+    draft = Draft(title="Chips", markdown="The market grew.")
+    assert draft.markdown == "The market grew."
+    with pytest.raises(ValidationError):
+        Draft(title="", markdown="")
+
+
+def test_fact_verdict_parses() -> None:
+    verdict = FactVerdict(
+        claim_id="c1",
+        status="unverified",
+        confidence=0.4,
+        reason="single source",
+        corroborations=["https://x.example"],
+        flags=["stale"],
+    )
+    assert verdict.status == "unverified"

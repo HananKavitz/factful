@@ -11,8 +11,20 @@ corroboration:
 gather:
   max_sources: 10
 
+retrieval:
+  top_k_passages: 3
+
+verify:
+  max_currency_years: 2.0
+
+writer:
+  profile: kevich
+
 llm:
   base_url: https://openrouter.ai/api/v1
   models:
     style: anthropic/claude-3.5-sonnet
     gather: <provider:model>
+    writer: <provider:model>
+    factcheck: <provider:model>
+    critic: <provider:model>
