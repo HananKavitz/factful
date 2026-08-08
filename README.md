@@ -6,10 +6,10 @@ Every factual sentence in a factful article traces back to a verified, sourced c
 
 [![CI](https://github.com/HananKavitz/factful/actions/workflows/ci.yml/badge.svg)](https://github.com/HananKavitz/factful/actions/workflows/ci.yml)
 [![Codecov](https://codecov.io/gh/HananKavitz/factful/branch/main/graph/badge.svg)](https://codecov.io/gh/HananKavitz/factful)
-[![Python](https://img.shields.io/badge/python-3.11-3776ab?logo=python&logoColor=white)](https://www.python.org/)
-[![uv](https://img.shields.io/badge/packaging-uv-7c3aed)](https://github.com/astral-sh/uv)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![mypy](https://img.shields.io/badge/mypy-strict-2b6db2)](http://mypy-lang.org/)
+[![Python](assets/badges/python-3.11.svg)](https://www.python.org/)
+[![uv](assets/badges/uv.svg)](https://github.com/astral-sh/uv)
+[![Ruff](assets/badges/ruff.svg)](https://github.com/astral-sh/ruff)
+[![mypy](assets/badges/mypy-strict.svg)](http://mypy-lang.org/)
 
 ## Features
 
