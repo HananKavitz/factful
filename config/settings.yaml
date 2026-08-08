@@ -8,7 +8,11 @@ pipeline:
 corroboration:
   min_sources: 2
 
+gather:
+  max_sources: 10
+
 llm:
   base_url: https://openrouter.ai/api/v1
   models:
     style: anthropic/claude-3.5-sonnet
+    gather: <provider:model>

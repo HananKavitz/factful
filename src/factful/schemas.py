@@ -23,6 +23,20 @@ class SourceBundle(BaseModel):
     citations: list[Citation] = Field(default_factory=list)
 
 
+class QueryExpansion(BaseModel):
+    queries: list[str] = Field(min_length=4, max_length=6)
+
+
+class MinedClaim(BaseModel):
+    claim: str = Field(min_length=1)
+    key_stat: str = Field(min_length=1)
+    quote_snippet: str = Field(min_length=1)
+
+
+class ClaimMineOutput(BaseModel):
+    claims: list[MinedClaim] = Field(default_factory=list)
+
+
 class FactVerdict(BaseModel):
     claim_id: str
     status: Literal["verified", "unverified", "contradicted", "unsupported"]

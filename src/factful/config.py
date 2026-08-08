@@ -19,6 +19,10 @@ class Corroboration(BaseModel):
     min_sources: int = Field(default=2, ge=1)
 
 
+class Gather(BaseModel):
+    max_sources: int = Field(default=10, ge=1)
+
+
 class LLM(BaseModel):
     base_url: str = Field(default="https://openrouter.ai/api/v1")
     models: dict[str, str] = Field(default_factory=dict)
@@ -29,6 +33,7 @@ class Settings(BaseModel):
 
     pipeline: Pipeline = Field(default_factory=Pipeline)
     corroboration: Corroboration = Field(default_factory=Corroboration)
+    gather: Gather = Field(default_factory=Gather)
     llm: LLM = Field(default_factory=LLM)
 
 

@@ -29,6 +29,15 @@ def test_settings_is_pydantic() -> None:
     assert settings.pipeline.model_dump()["epsilon"] == 1.0
 
 
+def test_gather_defaults() -> None:
+    assert Settings().gather.max_sources == 10
+
+
+def test_gather_max_sources_overridable() -> None:
+    settings = Settings.model_validate({"gather": {"max_sources": 4}})
+    assert settings.gather.max_sources == 4
+
+
 def test_unknown_key_fails_fast() -> None:
     with pytest.raises(ValidationError):
         Settings.model_validate({"pipeline": {"max_passes": 3}, "typo_key": 1})
