@@ -10,6 +10,7 @@ concurrency:
 
 permissions:
   contents: read
+  checks: write
 
 jobs:
   checks:
@@ -27,7 +28,15 @@ jobs:
         run: uv sync
 
       - name: Run tests
-        run: uv run pytest
+        run: uv run pytest --junitxml=pytest.xml
+
+      - name: Report test results
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: Pytest results
+          path: pytest.xml
+          reporter: java-junit
 
       - name: Lint
         run: uv run ruff check .
