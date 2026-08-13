@@ -97,7 +97,7 @@ def run_pipeline(
 
     for pass_ in range(1, settings.pipeline.max_passes + 1):
         if state.pass_ == 1 or settings.pipeline.revision_mode == "regenerate":
-            draft = write_article(bundle, profile, client=clients.writer)
+            draft = write_article(bundle, profile, client=clients.writer, settings=settings)
             logger.info("pass %d: wrote draft", pass_)
         else:
             if previous_draft is None or previous_critique is None:
@@ -109,6 +109,7 @@ def run_pipeline(
                 bundle,
                 profile,
                 client=clients.writer,
+                settings=settings,
             )
             logger.info("pass %d: revised draft", pass_)
 
@@ -127,7 +128,7 @@ def run_pipeline(
             len(state.verdicts),
             state.critical_failures,
         )
-        report = critique(draft, client=clients.critic)
+        report = critique(draft, client=clients.critic, settings=settings)
         state.add_critique(report)
         state.record_pass(score=report.score, draft=draft.markdown)
         logger.info("pass %d: critique score %g", pass_, report.score)

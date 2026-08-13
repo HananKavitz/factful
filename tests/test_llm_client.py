@@ -53,7 +53,10 @@ def test_builds_expected_request_body() -> None:
     assert captured["auth"] == "Bearer k"
     assert captured["body"]["model"] == "m"
     assert captured["body"]["messages"] == [{"role": "user", "content": "hello"}]
-    assert captured["body"]["response_format"] == {"type": "json_object"}
+    assert captured["body"]["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {"name": "Dummy", "schema": Dummy.model_json_schema()},
+    }
     assert captured["url"] == "https://openrouter.ai/api/v1/chat/completions"
 
 
@@ -259,3 +262,49 @@ def test_logs_unusable_response_retry(caplog: pytest.LogCaptureFixture) -> None:
     assert out.name == "x"
     messages = [record.message for record in caplog.records]
     assert any("LLM returned an unusable response, retrying (1/3)" in m for m in messages)
+
+
+def test_logs_schema_validation_error_details_on_retry(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="factful.llm.client")
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": '{"name": 123}'}}]},
+            )
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"name":"x"}'}}]})
+
+    out = _client(handler).chat_completion(prompt="p", schema=Dummy)
+    assert out.name == "x"
+    messages = [record.message for record in caplog.records]
+    retry = next(
+        m for m in messages if "LLM response failed schema validation, retrying (1/3)" in m
+    )
+    assert "Input should be a valid string" in retry
+    assert '{"name": 123}' in retry
+
+
+def test_logs_schema_validation_error_details_when_exhausted(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="factful.llm.client")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": '{"name": 123}'}}]},
+        )
+
+    with pytest.raises(ValueError):
+        _client(handler).chat_completion(prompt="p", schema=Dummy)
+    messages = [record.message for record in caplog.records]
+    exhausted = next(
+        m for m in messages if "LLM response failed schema validation, retries exhausted" in m
+    )
+    assert "Input should be a valid string" in exhausted
+    assert '{"name": 123}' in exhausted

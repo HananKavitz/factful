@@ -8,7 +8,6 @@ import httpx
 from pydantic import BaseModel
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-JSON_FALLBACK = "json_object"
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +22,16 @@ def _chat_completions_endpoint(base_url: str) -> str:
     if base_url.endswith("/chat/completions"):
         return base_url
     return f"{base_url.rstrip('/')}/chat/completions"
+
+
+def _response_format(schema: type[BaseModel]) -> dict[str, object]:
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": schema.__name__,
+            "schema": schema.model_json_schema(),
+        },
+    }
 
 
 class ChatClient(Protocol):
@@ -59,7 +68,7 @@ class OpenRouterClient:
                     json={
                         "model": self._model,
                         "messages": [{"role": "user", "content": prompt}],
-                        "response_format": {"type": JSON_FALLBACK},
+                        "response_format": _response_format(schema),
                     },
                 )
                 response.raise_for_status()
@@ -114,10 +123,12 @@ class OpenRouterClient:
                 ) from exc
             try:
                 return _parse_and_validate(raw, schema)
-            except ValueError:
+            except ValueError as exc:
                 logger.info(
-                    "LLM response failed schema validation%s",
+                    "LLM response failed schema validation%s: %s (content: %r)",
                     _retry_suffix(attempt, attempts),
+                    str(exc)[:300],
+                    raw[:200],
                 )
                 if attempt < attempts - 1:
                     continue

@@ -5,11 +5,29 @@ from __future__ import annotations
 import json
 import re
 
+from factful.config import Settings
 from factful.llm.client import ChatClient
 from factful.schemas import CritiqueReport, Draft, FactVerdict, SourceBundle
 from factful.style.schema import StyleProfile
 
 _CLAIM_TAG = re.compile(r"\[\[(?P<claim_id>\w+)\]\]")
+
+
+def _length_guidance(min_words: int, target_words: int, max_words: int) -> str:
+    return (
+        f"Length — aim for about {target_words} words, staying within "
+        f"{min_words}-{max_words} words. Excessively long articles read as padded "
+        f"and boring; trim ruthlessly."
+    )
+
+
+def _revision_length_guidance(min_words: int, target_words: int, max_words: int) -> str:
+    return (
+        f"Keep the article within {min_words}-{max_words} words (about {target_words}). "
+        f"If feedback flags excessive length, trim toward the target without dropping "
+        f"grounded claims."
+    )
+
 
 _WRITER_INSTRUCTIONS = """
 You are an expert Substack writer. Compose a COMPLETE Markdown article on the
@@ -46,7 +64,14 @@ Return the revised article as Markdown that fits the supplied output schema.
 """
 
 
-def build_writer_prompt(bundle: SourceBundle, profile: StyleProfile) -> str:
+def build_writer_prompt(
+    bundle: SourceBundle,
+    profile: StyleProfile,
+    *,
+    settings: Settings | None = None,
+) -> str:
+    settings = settings if settings is not None else Settings()
+    writer = settings.writer
     citations = "\n\n".join(
         f"claim_id: {c.claim_id}\n"
         f"claim: {c.claim}\n"
@@ -62,6 +87,7 @@ def build_writer_prompt(bundle: SourceBundle, profile: StyleProfile) -> str:
         f"Style profile:\n{json.dumps(profile.model_dump(), indent=2)}\n\n"
         f"Source bundle (claims to ground the article):\n{citations}\n\n"
         f"{_WRITER_INSTRUCTIONS}\n\n"
+        f"{_length_guidance(writer.min_words, writer.target_words, writer.max_words)}\n\n"
         f"Output schema (return JSON matching this shape):\n"
         f"{json.dumps(Draft.model_json_schema(), indent=2)}"
     )
@@ -92,7 +118,11 @@ def build_revision_prompt(
     critique: CritiqueReport,
     bundle: SourceBundle,
     profile: StyleProfile,
+    *,
+    settings: Settings | None = None,
 ) -> str:
+    settings = settings if settings is not None else Settings()
+    writer = settings.writer
     citations = "\n\n".join(
         f"claim_id: {c.claim_id}\n"
         f"claim: {c.claim}\n"
@@ -110,6 +140,7 @@ def build_revision_prompt(
         f"Current draft:\n{draft.markdown}\n\n"
         f"Feedback to address:\n{_render_feedback(verdicts, critique)}\n\n"
         f"{_REVISION_INSTRUCTIONS}\n\n"
+        f"{_revision_length_guidance(writer.min_words, writer.target_words, writer.max_words)}\n\n"
         f"Output schema (return JSON matching this shape):\n"
         f"{json.dumps(Draft.model_json_schema(), indent=2)}"
     )
@@ -123,8 +154,9 @@ def revise_article(
     profile: StyleProfile,
     *,
     client: ChatClient,
+    settings: Settings | None = None,
 ) -> Draft:
-    prompt = build_revision_prompt(draft, verdicts, critique, bundle, profile)
+    prompt = build_revision_prompt(draft, verdicts, critique, bundle, profile, settings=settings)
     result = client.chat_completion(prompt=prompt, schema=Draft)
     if not isinstance(result, Draft):
         raise TypeError(f"expected Draft, got {type(result).__name__}")
@@ -144,8 +176,9 @@ def write_article(
     profile: StyleProfile,
     *,
     client: ChatClient,
+    settings: Settings | None = None,
 ) -> Draft:
-    prompt = build_writer_prompt(bundle, profile)
+    prompt = build_writer_prompt(bundle, profile, settings=settings)
     result = client.chat_completion(prompt=prompt, schema=Draft)
     if not isinstance(result, Draft):
         raise TypeError(f"expected Draft, got {type(result).__name__}")

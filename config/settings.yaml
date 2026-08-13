@@ -19,12 +19,15 @@ verify:
 
 writer:
   profile: kevich
+  min_words: 1500
+  target_words: 2000
+  max_words: 2500
 
 llm:
   base_url: https://openrouter.ai/api/v1
   models:
-    style: anthropic/claude-sonnet-4.5
+    style: google/gemini-3-flash-preview
     gather: openai/gpt-4o-mini
-    writer: anthropic/claude-sonnet-4.5
+    writer: google/gemini-3-flash-preview
     factcheck: openai/gpt-4o-mini
     critic: openai/gpt-4o-mini

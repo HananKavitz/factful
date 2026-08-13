@@ -1,4 +1,4 @@
-from factful.agents.critic import build_critic_prompt, critique, reading_grade
+from factful.agents.critic import build_critic_prompt, critique, reading_grade, word_count
 from factful.schemas import CritiqueReport, Draft
 
 
@@ -17,11 +17,35 @@ def test_reading_grade_in_sane_range() -> None:
     assert 0.0 <= grade <= 206.0
 
 
+def test_word_count_counts_words_and_numbers() -> None:
+    assert word_count("The market grew 12% [[c1]].") == 5
+
+
+def test_word_count_empty_text_is_zero() -> None:
+    assert word_count("") == 0
+
+
 def test_build_critic_prompt_embeds_draft_and_grade() -> None:
     draft = Draft(title="Chips", markdown="Market grew 12% [[c1]].")
-    prompt = build_critic_prompt(draft, reading_grade(draft.markdown))
+    prompt = build_critic_prompt(
+        draft,
+        reading_grade(draft.markdown),
+        words=word_count(draft.markdown),
+        min_words=900,
+        max_words=1800,
+    )
     assert "Market grew 12% [[c1]]." in prompt
     assert "Flesch" in prompt
+
+
+def test_build_critic_prompt_embeds_word_count_and_bounds() -> None:
+    draft = Draft(title="Chips", markdown="Market grew 12% [[c1]].")
+    prompt = build_critic_prompt(
+        draft, reading_grade(draft.markdown), words=5, min_words=900, max_words=1800
+    )
+    assert "word count: 5 words" in prompt
+    assert "900" in prompt
+    assert "1800" in prompt
 
 
 class FakeClient:

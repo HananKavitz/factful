@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Pipeline(BaseModel):
@@ -33,6 +33,15 @@ class Verify(BaseModel):
 
 class Writer(BaseModel):
     profile: str = Field(default="kevich", min_length=1)
+    min_words: int = Field(default=1500, ge=100)
+    target_words: int = Field(default=2000, ge=100)
+    max_words: int = Field(default=2500, ge=100)
+
+    @model_validator(mode="after")
+    def _word_bounds_ordered(self) -> Writer:
+        if not (self.min_words <= self.target_words <= self.max_words):
+            raise ValueError("writer word bounds must satisfy min <= target <= max")
+        return self
 
 
 class LLM(BaseModel):

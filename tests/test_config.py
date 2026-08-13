@@ -54,6 +54,26 @@ def test_retrieval_verify_writer_overridable() -> None:
     assert settings.writer.profile == "voice"
 
 
+def test_writer_word_bounds_defaults() -> None:
+    writer = Settings().writer
+    assert writer.min_words == 1500
+    assert writer.target_words == 2000
+    assert writer.max_words == 2500
+
+
+def test_writer_word_bounds_overridable() -> None:
+    writer = Settings.model_validate({"writer": {"max_words": 2400}}).writer
+    assert writer.max_words == 2400
+    assert writer.min_words == 1500
+
+
+def test_writer_word_bounds_reject_unordered_range() -> None:
+    with pytest.raises(ValidationError):
+        Settings.model_validate(
+            {"writer": {"min_words": 2000, "target_words": 1200, "max_words": 1800}}
+        )
+
+
 def test_unknown_key_fails_fast() -> None:
     with pytest.raises(ValidationError):
         Settings.model_validate({"pipeline": {"max_passes": 3}, "typo_key": 1})

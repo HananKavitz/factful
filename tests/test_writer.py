@@ -50,6 +50,14 @@ def test_build_writer_prompt_embeds_bundle_and_profile() -> None:
     assert "[[claim_id]]" in prompt
 
 
+def test_build_writer_prompt_includes_word_bounds() -> None:
+    prompt = build_writer_prompt(make_bundle(), profile())
+    assert "1500" in prompt
+    assert "2000" in prompt
+    assert "2500" in prompt
+    assert "words" in prompt
+
+
 def test_extract_referenced_claims_in_order_deduplicated() -> None:
     md = "Intro. [[c1]] and more [[c2]], then [[c1]] again."
     assert extract_referenced_claims(md) == ["c1", "c2"]
@@ -117,6 +125,16 @@ def test_build_revision_prompt_includes_draft_feedback_and_bundle() -> None:
     assert "sharper statistic" in prompt
     assert "Revenue hit $4B in 2024" in prompt
     assert "kevich" in prompt
+
+
+def test_build_revision_prompt_includes_word_bounds() -> None:
+    draft = Draft(title="Chips", markdown="The market grew 12% [[c1]].")
+    prompt = build_revision_prompt(
+        draft, make_verdicts(), make_critique(), make_bundle(), profile()
+    )
+    assert "1500" in prompt
+    assert "2000" in prompt
+    assert "2500" in prompt
 
 
 def test_revise_article_returns_draft() -> None:

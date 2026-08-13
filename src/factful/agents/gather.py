@@ -19,6 +19,21 @@ from factful.schemas import (
 )
 
 DEFAULT_MAX_SOURCES = 10
+MAX_MINE_TEXT_CHARACTERS = 120_000
+
+_SENTENCE_BOUNDARIES = (". ", ".\n", "\n")
+
+
+def truncate_text(text: str, max_characters: int = MAX_MINE_TEXT_CHARACTERS) -> str:
+    if len(text) <= max_characters:
+        return text
+    cut = text[:max_characters]
+    for boundary in _SENTENCE_BOUNDARIES:
+        index = cut.rfind(boundary)
+        if index != -1:
+            return cut[: index + 1].rstrip()
+    return cut.rstrip()
+
 
 _EXPANSION_INSTRUCTIONS = """
 You are the gathering agent for a fact-grounded article. Expand the topic into
@@ -63,7 +78,7 @@ def build_mine_prompt(page: Page) -> str:
         f"Article title: {page.title}\n"
         f"Article URL: {page.url}\n"
         f"Published: {page.publish_date or 'unknown'}\n\n"
-        f"Text:\n{page.text}\n\n"
+        f"Text:\n{truncate_text(page.text)}\n\n"
         f"{_MINE_INSTRUCTIONS}\n\n"
         f"Output schema (return JSON matching this shape):\n"
         f"{json.dumps(ClaimMineOutput.model_json_schema(), indent=2)}"

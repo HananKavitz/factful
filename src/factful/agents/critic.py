@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 
+from factful.config import Settings
 from factful.llm.client import ChatClient
 from factful.schemas import CritiqueReport, Draft
 
@@ -16,6 +17,12 @@ Evaluate:
 - Hook: does the opener pull a scrolling reader in?
 - Readability: sentence and paragraph length, flow (the supplied reading grade is
   computed deterministically; treat it as authoritative).
+- Length: the supplied word count is computed deterministically; treat it as
+  authoritative. Heavily penalize drafts that exceed the word-count ceiling —
+  excessive length reads as padding and kills engagement. Flag it as an issue with
+  a concrete trimming revision (cut padding, merge redundant sentences, tighten
+  transitions). Note without heavy penalty when a draft falls well below the floor
+  and feels thin.
 - Argument structure: every claim follows claim -> evidence -> implication.
 - Calls to action and sign-off.
 
@@ -35,24 +42,50 @@ def reading_grade(text: str) -> float:
     return 206.835 - 1.015 * (words / sentences) - 84.6 * (syllables / words)
 
 
+def word_count(text: str) -> int:
+    """Deterministic word count (matches the reading-grade tokenizer)."""
+    return len(re.findall(r"[A-Za-z0-9]+", text))
+
+
 def _syllables(word: str) -> int:
     count = len(re.findall(r"[aeiouy]+", word.lower()))
     return count
 
 
-def build_critic_prompt(draft: Draft, grade: float) -> str:
+def build_critic_prompt(
+    draft: Draft,
+    grade: float,
+    *,
+    words: int,
+    min_words: int,
+    max_words: int,
+) -> str:
     return (
         f"Article draft:\n{draft.markdown}\n\n"
-        f"Deterministic reading grade (Flesch reading-ease, higher is easier): {grade:.1f}\n\n"
+        f"Deterministic reading grade (Flesch reading-ease, higher is easier): {grade:.1f}\n"
+        f"Deterministic word count: {words} words (target range {min_words}-{max_words})\n\n"
         f"{_CRITIC_INSTRUCTIONS}\n\n"
         f"Output schema (return JSON matching this shape):\n"
         f"{json.dumps(CritiqueReport.model_json_schema(), indent=2)}"
     )
 
 
-def critique(draft: Draft, *, client: ChatClient) -> CritiqueReport:
+def critique(
+    draft: Draft,
+    *,
+    client: ChatClient,
+    settings: Settings | None = None,
+) -> CritiqueReport:
+    settings = settings if settings is not None else Settings()
     grade = reading_grade(draft.markdown)
-    prompt = build_critic_prompt(draft, grade)
+    words = word_count(draft.markdown)
+    prompt = build_critic_prompt(
+        draft,
+        grade,
+        words=words,
+        min_words=settings.writer.min_words,
+        max_words=settings.writer.max_words,
+    )
     result = client.chat_completion(prompt=prompt, schema=CritiqueReport)
     if not isinstance(result, CritiqueReport):
         raise TypeError(f"expected CritiqueReport, got {type(result).__name__}")

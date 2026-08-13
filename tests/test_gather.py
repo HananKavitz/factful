@@ -5,11 +5,13 @@ from pydantic import BaseModel
 
 from factful.agents.fetch import Page
 from factful.agents.gather import (
+    MAX_MINE_TEXT_CHARACTERS,
     build_expand_prompt,
     build_mine_prompt,
     dedupe_by_url,
     find_passage_para,
     gather,
+    truncate_text,
 )
 from factful.agents.search import SearchResult
 from factful.config import Settings
@@ -120,6 +122,33 @@ def test_mine_prompt_injects_page_text() -> None:
     prompt = build_mine_prompt(page)
     assert "Revenue hit $4B in 2024." in prompt
     assert "verbatim" in prompt.lower()
+
+
+def test_mine_prompt_truncates_oversized_page_text() -> None:
+    page = Page(
+        url="https://reports.example/market",
+        title="Market Report",
+        publish_date="2024-01-01",
+        text="Revenue hit $4B in 2024.\n" * 50_000,
+    )
+    prompt = build_mine_prompt(page)
+    assert len(page.text) > MAX_MINE_TEXT_CHARACTERS
+    assert len(prompt) < len(page.text)
+    assert "Revenue hit $4B in 2024." in prompt
+
+
+def test_truncate_text_returns_short_text_unchanged() -> None:
+    assert truncate_text("short text", max_characters=100) == "short text"
+
+
+def test_truncate_text_cuts_at_sentence_boundary() -> None:
+    text = "First sentence. Second sentence. Third sentence."
+    assert truncate_text(text, max_characters=20) == "First sentence."
+
+
+def test_truncate_text_falls_back_to_hard_cut() -> None:
+    out = truncate_text("abcdefghijklmnopqrstuvwxyz", max_characters=10)
+    assert out == "abcdefghij"
 
 
 def test_dedupe_by_url_keeps_first_and_filters_duplicates() -> None:
