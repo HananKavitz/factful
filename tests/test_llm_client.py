@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from typing import Any
 
@@ -182,3 +183,79 @@ def test_client_error_reports_provider_body() -> None:
 
     with pytest.raises(ValueError, match="context_length_exceeded"):
         _client(handler).chat_completion(prompt="p", schema=Dummy)
+
+
+def test_logs_timeout_retry_then_succeeds(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="factful.llm.client")
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            raise httpx.ReadTimeout("timed out", request=request)
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"name":"x"}'}}]})
+
+    out = _client(handler).chat_completion(prompt="p", schema=Dummy)
+    assert out.name == "x"
+    messages = [record.message for record in caplog.records]
+    assert any("LLM request timed out, retrying (1/3)" in m for m in messages)
+
+
+def test_logs_timeout_failure_after_retries_exhausted(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="factful.llm.client")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("timed out", request=request)
+
+    with pytest.raises(httpx.ReadTimeout):
+        _client(handler).chat_completion(prompt="p", schema=Dummy)
+    messages = [record.message for record in caplog.records]
+    assert any("LLM request timed out, retries exhausted" in m for m in messages)
+
+
+def test_logs_5xx_failure_retry(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="factful.llm.client")
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(500, text="boom")
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"name":"x"}'}}]})
+
+    out = _client(handler).chat_completion(prompt="p", schema=Dummy)
+    assert out.name == "x"
+    messages = [record.message for record in caplog.records]
+    assert any("LLM request failed (status 500), retrying (1/3)" in m for m in messages)
+
+
+def test_logs_4xx_rejection(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="factful.llm.client")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"error": {"message": "context_length_exceeded"}})
+
+    with pytest.raises(ValueError, match="context_length_exceeded"):
+        _client(handler).chat_completion(prompt="p", schema=Dummy)
+    messages = [record.message for record in caplog.records]
+    assert any("LLM API rejected the request" in m for m in messages)
+
+
+def test_logs_unusable_response_retry(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="factful.llm.client")
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(200, text="")
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"name":"x"}'}}]})
+
+    out = _client(handler).chat_completion(prompt="p", schema=Dummy)
+    assert out.name == "x"
+    messages = [record.message for record in caplog.records]
+    assert any("LLM returned an unusable response, retrying (1/3)" in m for m in messages)

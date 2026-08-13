@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from typing import Any
 
@@ -73,3 +74,27 @@ def test_http_error_propagates() -> None:
 
     with pytest.raises(httpx.HTTPStatusError):
         _searcher(handler).search("climate change")
+
+
+def test_logs_timeout_failure(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="factful.agents.search")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("timed out", request=request)
+
+    with pytest.raises(httpx.ReadTimeout):
+        _searcher(handler).search("climate change")
+    messages = [record.message for record in caplog.records]
+    assert any("Tavily search timed out" in m for m in messages)
+
+
+def test_logs_http_error_failure(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="factful.agents.search")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="boom", request=request)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        _searcher(handler).search("climate change")
+    messages = [record.message for record in caplog.records]
+    assert any("Tavily search failed (status 500)" in m for m in messages)

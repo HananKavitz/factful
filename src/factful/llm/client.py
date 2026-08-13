@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Protocol
 
 import httpx
@@ -8,6 +9,14 @@ from pydantic import BaseModel
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 JSON_FALLBACK = "json_object"
+
+logger = logging.getLogger(__name__)
+
+
+def _retry_suffix(attempt: int, attempts: int) -> str:
+    if attempt < attempts - 1:
+        return f", retrying ({attempt + 1}/{attempts})"
+    return ", retries exhausted"
 
 
 def _chat_completions_endpoint(base_url: str) -> str:
@@ -56,14 +65,29 @@ class OpenRouterClient:
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:
                 if 400 <= exc.response.status_code < 500:
+                    logger.info(
+                        "LLM API rejected the request (status %d): %s",
+                        exc.response.status_code,
+                        exc.response.text[:300],
+                    )
                     raise ValueError(
                         f"LLM API rejected the request "
                         f"(status {exc.response.status_code}): {exc.response.text[:300]}"
                     ) from exc
+                logger.info(
+                    "LLM request failed (status %d)%s",
+                    exc.response.status_code,
+                    _retry_suffix(attempt, attempts),
+                )
                 if attempt < attempts - 1:
                     continue
                 raise
-            except httpx.HTTPError:
+            except httpx.HTTPError as exc:
+                if isinstance(exc, httpx.TimeoutException):
+                    kind = "timed out"
+                else:
+                    kind = "failed"
+                logger.info("LLM request %s%s", kind, _retry_suffix(attempt, attempts))
                 if attempt < attempts - 1:
                     continue
                 raise
@@ -78,6 +102,10 @@ class OpenRouterClient:
                 TypeError,
                 ValueError,
             ) as exc:
+                logger.info(
+                    "LLM returned an unusable response%s",
+                    _retry_suffix(attempt, attempts),
+                )
                 if attempt < attempts - 1:
                     continue
                 raise ValueError(
@@ -87,6 +115,10 @@ class OpenRouterClient:
             try:
                 return _parse_and_validate(raw, schema)
             except ValueError:
+                logger.info(
+                    "LLM response failed schema validation%s",
+                    _retry_suffix(attempt, attempts),
+                )
                 if attempt < attempts - 1:
                     continue
                 raise
