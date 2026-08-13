@@ -56,17 +56,18 @@ def converge(
     words: int,
 ) -> ConvergeResult:
     """Decide whether to publish, patch again, or stop after a pass."""
-    if not (settings.writer.min_words <= words <= settings.writer.max_words):
-        return ConvergeResult(decision="patch", reason="word count out of bounds; patching")
-    if critical_failures == 0 and score >= settings.pipeline.score_accept:
+    in_bounds = settings.writer.min_words <= words <= settings.writer.max_words
+    if in_bounds and critical_failures == 0 and score >= settings.pipeline.score_accept:
         return ConvergeResult(decision="publish", reason="hard gate passed")
+    if pass_ >= settings.pipeline.max_passes:
+        return ConvergeResult(decision="stop", reason="max passes reached")
+    if not in_bounds:
+        return ConvergeResult(decision="patch", reason="word count out of bounds; patching")
     previous = history[-1].score if history else None
     if previous is not None and score < previous:
         return ConvergeResult(decision="stop", reason="score regressed (oscillation guard)")
     if previous is not None and score - previous < settings.pipeline.epsilon:
         return ConvergeResult(decision="stop", reason="diminishing returns")
-    if pass_ >= settings.pipeline.max_passes:
-        return ConvergeResult(decision="stop", reason="max passes reached")
     return ConvergeResult(decision="patch", reason="below gate; patching")
 
 

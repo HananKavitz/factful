@@ -454,18 +454,20 @@ def test_run_pipeline_refuses_to_publish_below_floor_and_keeps_patching() -> Non
     assert result.state.draft == good.markdown
 
 
-def test_run_pipeline_fails_fast_when_floor_never_met() -> None:
+def test_run_pipeline_stops_with_best_draft_when_floor_never_met() -> None:
     client = FakeClient(
         drafts=[draft("d1 [[c1]]"), draft("d2 [[c1]]"), draft("d3 [[c1]]")],
         scores=[95, 95, 95],
     )
-    with pytest.raises(RuntimeError, match="max_passes"):
-        run_pipeline(
-            "Semiconductors",
-            "supply risk",
-            settings=settings(),
-            searcher=FakeSearcher(),
-            fetcher=FakeFetcher(),
-            clients=clients(client),
-            profile=profile(),
-        )
+    result = run_pipeline(
+        "Semiconductors",
+        "supply risk",
+        settings=settings(),
+        searcher=FakeSearcher(),
+        fetcher=FakeFetcher(),
+        clients=clients(client),
+        profile=profile(),
+    )
+    assert result.decision == "stop"
+    assert "max passes" in result.reason
+    assert result.state.draft == "d1 [[c1]]"
