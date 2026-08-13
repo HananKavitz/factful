@@ -24,7 +24,7 @@ llm:
   base_url: https://openrouter.ai/api/v1
   models:
     style: anthropic/claude-3.5-sonnet
-    gather: <provider:model>
-    writer: <provider:model>
-    factcheck: <provider:model>
-    critic: <provider:model>
+    gather: openai/gpt-4o-mini
+    writer: anthropic/claude-3.5-sonnet
+    factcheck: openai/gpt-4o-mini
+    critic: openai/gpt-4o-mini

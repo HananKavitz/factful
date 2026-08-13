@@ -3,7 +3,13 @@ from factful.agents.factcheck import factcheck_article
 from factful.agents.fetch import Fetcher, HttpxFetcher, Page, extract_page
 from factful.agents.gather import dedupe_by_url, gather
 from factful.agents.search import Searcher, SearchResult, TavilySearcher
-from factful.agents.writer import build_writer_prompt, extract_referenced_claims, write_article
+from factful.agents.writer import (
+    build_revision_prompt,
+    build_writer_prompt,
+    extract_referenced_claims,
+    revise_article,
+    write_article,
+)
 
 __all__ = [
     "Fetcher",
@@ -13,6 +19,7 @@ __all__ = [
     "Searcher",
     "TavilySearcher",
     "build_critic_prompt",
+    "build_revision_prompt",
     "build_writer_prompt",
     "critique",
     "dedupe_by_url",
@@ -21,5 +28,6 @@ __all__ = [
     "factcheck_article",
     "gather",
     "reading_grade",
+    "revise_article",
     "write_article",
 ]
