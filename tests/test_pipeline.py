@@ -1,5 +1,5 @@
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 
@@ -272,6 +272,26 @@ def test_run_pipeline_single_pass_publishes() -> None:
     assert result.state.score == 90
     assert len(result.state.verdicts) == 1
     assert result.unresolved == []
+
+
+def test_run_pipeline_forwards_today_to_gather_and_writer_prompts() -> None:
+    client = FakeClient(drafts=[long_draft()], scores=[90])
+    run_pipeline(
+        "Semiconductors",
+        "supply risk",
+        settings=settings(),
+        searcher=FakeSearcher(),
+        fetcher=FakeFetcher(),
+        clients=clients(client),
+        profile=profile(),
+        today=date(2026, 8, 13),
+    )
+    expand_prompt, expand_schema = client.calls[0]
+    assert expand_schema is QueryExpansion
+    assert "Today is 2026-08-13" in expand_prompt
+    draft_prompts = [prompt for prompt, schema in client.calls if schema is Draft]
+    assert draft_prompts
+    assert all("Today is 2026-08-13" in prompt for prompt in draft_prompts)
 
 
 def test_run_pipeline_logs_progress(

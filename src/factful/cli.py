@@ -225,7 +225,7 @@ def _generate_command(args: argparse.Namespace) -> int:
         args.topic,
         args.angle,
         settings=settings,
-        searcher=TavilySearcher(api_key=tavily_key),
+        searcher=TavilySearcher(api_key=tavily_key, days=settings.gather.search_days),
         fetcher=HttpxFetcher(),
         clients=clients,
         profile=profile,

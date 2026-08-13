@@ -61,6 +61,32 @@ def test_search_posts_expected_body() -> None:
     assert body["max_results"] == 5
 
 
+def test_search_posts_days_when_configured() -> None:
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = request.read()
+        return httpx.Response(200, json={"results": []}, request=request)
+
+    _searcher(handler, days=365).search("climate figures")
+
+    body = json.loads(captured["body"])
+    assert body["days"] == 365
+
+
+def test_search_omits_days_by_default() -> None:
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = request.read()
+        return httpx.Response(200, json={"results": []}, request=request)
+
+    _searcher(handler).search("climate figures")
+
+    body = json.loads(captured["body"])
+    assert "days" not in body
+
+
 def test_search_handles_null_results() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"results": None}, request=request)

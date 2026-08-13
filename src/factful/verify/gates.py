@@ -23,7 +23,7 @@ def numeric_gates(
     publish_date: str,
     max_currency_years: float = 2.0,
     *,
-    now: date | None = None,
+    today: date | None = None,
 ) -> list[str]:
     flags: list[str] = []
 
@@ -42,8 +42,8 @@ def numeric_gates(
 
     published = parse_date(publish_date)
     if published is not None:
-        today = now or date.today()
-        if (today - published).days > max_currency_years * 365:
+        reference = today or date.today()
+        if (reference - published).days > max_currency_years * 365:
             flags.append(
                 f"source dated {published.isoformat()} is over {max_currency_years} years old"
             )

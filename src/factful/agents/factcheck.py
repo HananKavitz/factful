@@ -27,7 +27,7 @@ def _verify_citation(
     fetcher: Fetcher,
     client: ChatClient,
     settings: Settings,
-    now: date | None,
+    today: date | None,
 ) -> FactVerdict:
     min_sources = settings.corroboration.min_sources
     flags: list[str] = numeric_gates(
@@ -36,7 +36,7 @@ def _verify_citation(
         citation.quote_snippet,
         citation.publish_date,
         settings.verify.max_currency_years,
-        now=now,
+        today=today,
     )
     unsupported = FactVerdict(
         claim_id=citation.claim_id,
@@ -111,7 +111,7 @@ def factcheck_article(
     fetcher: Fetcher,
     client: ChatClient,
     settings: Settings | None = None,
-    now: date | None = None,
+    today: date | None = None,
 ) -> list[FactVerdict]:
     settings = settings if settings is not None else Settings()
     by_id = {c.claim_id: c for c in citations}
@@ -135,7 +135,7 @@ def factcheck_article(
                 fetcher=fetcher,
                 client=client,
                 settings=settings,
-                now=now,
+                today=today,
             )
         )
     return verdicts

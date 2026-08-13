@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 from pydantic import BaseModel
 
@@ -117,6 +119,21 @@ def test_expand_queries_prompt_reflects_topic_and_angle() -> None:
     assert "between 4 and 6" in prompt
 
 
+def test_expand_prompt_injects_today_date() -> None:
+    prompt = build_expand_prompt(TOPIC, ANGLE, today=date(2026, 8, 13))
+    assert "Today is 2026-08-13" in prompt
+
+
+def test_expand_prompt_defaults_to_current_date() -> None:
+    prompt = build_expand_prompt(TOPIC, ANGLE)
+    assert f"Today is {date.today().isoformat()}" in prompt
+
+
+def test_expand_prompt_biases_queries_toward_recent_sources() -> None:
+    prompt = build_expand_prompt(TOPIC, ANGLE, today=date(2026, 8, 13))
+    assert "recent" in prompt.lower()
+
+
 def test_mine_prompt_injects_page_text() -> None:
     page = PAGES["https://reports.example/market"]
     prompt = build_mine_prompt(page)
@@ -222,6 +239,22 @@ def test_gather_searches_each_expanded_query() -> None:
         "top suppliers",
         "supply chain exposure",
     ]
+
+
+def test_gather_forwards_today_to_expansion_prompt() -> None:
+    client = FakeClient(
+        expansion=QueryExpansion(queries=["q1", "q2", "q3", "q4"]),
+        mine=MINED,
+    )
+    gather(
+        TOPIC,
+        ANGLE,
+        client=client,
+        searcher=FakeSearcher(SEARCH_RESULTS),
+        fetcher=FakeFetcher(PAGES),
+        today=date(2026, 8, 13),
+    )
+    assert "Today is 2026-08-13" in client.calls[0][0]
 
 
 def test_gather_deduplicates_expanded_queries() -> None:

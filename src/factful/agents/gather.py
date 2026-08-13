@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from urllib.parse import urlsplit
 
 from factful.agents.fetch import Fetcher, Page
@@ -43,6 +43,8 @@ specific numbers or statistics (market sizes, growth rates, counts, dollars).
 Rules:
 - Each query must be a distinct angle on the topic; no duplicated intent.
 - Queries should be search-engine friendly: concrete, specific, number-seeking.
+- Bias queries toward the current year and the latest available reporting; include
+  the current year in queries where it helps surface fresh data.
 - Return structured JSON matching the supplied schema.
 """
 
@@ -62,10 +64,12 @@ Rules:
 """
 
 
-def build_expand_prompt(topic: str, angle: str) -> str:
+def build_expand_prompt(topic: str, angle: str, *, today: date | None = None) -> str:
+    today = today or date.today()
     return (
         f"Topic: {topic}\n"
         f"Angle: {angle}\n\n"
+        f"Today is {today.isoformat()}.\n\n"
         f"Produce between 4 and 6 web-search queries.\n\n"
         f"{_EXPANSION_INSTRUCTIONS}\n\n"
         f"Output schema (return JSON matching this shape):\n"
@@ -85,8 +89,16 @@ def build_mine_prompt(page: Page) -> str:
     )
 
 
-def expand_queries(topic: str, angle: str, *, client: ChatClient) -> list[str]:
-    result = client.chat_completion(prompt=build_expand_prompt(topic, angle), schema=QueryExpansion)
+def expand_queries(
+    topic: str,
+    angle: str,
+    *,
+    client: ChatClient,
+    today: date | None = None,
+) -> list[str]:
+    result = client.chat_completion(
+        prompt=build_expand_prompt(topic, angle, today=today), schema=QueryExpansion
+    )
     if not isinstance(result, QueryExpansion):
         raise TypeError(f"expected QueryExpansion, got {type(result).__name__}")
     return list(dict.fromkeys(result.queries))
@@ -146,11 +158,12 @@ def gather(
     fetcher: Fetcher,
     settings: Settings | None = None,
     max_sources: int | None = None,
+    today: date | None = None,
 ) -> SourceBundle:
     limit = max_sources
     if limit is None:
         limit = settings.gather.max_sources if settings is not None else DEFAULT_MAX_SOURCES
-    queries = expand_queries(topic, angle, client=client)
+    queries = expand_queries(topic, angle, client=client, today=today)
     results: list[SearchResult] = []
     for query in queries:
         results.extend(searcher.search(query))

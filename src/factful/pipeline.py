@@ -81,7 +81,7 @@ def run_pipeline(
     clients: PipelineClients,
     profile: StyleProfile,
     max_sources: int | None = None,
-    now: date | None = None,
+    today: date | None = None,
     instructions: str | None = None,
 ) -> PipelineResult:
     bundle = gather(
@@ -92,6 +92,7 @@ def run_pipeline(
         fetcher=fetcher,
         settings=settings,
         max_sources=max_sources,
+        today=today,
     )
     state = PipelineState(topic=topic, angle=angle, source_bundle=bundle)
     logger.info("gathered %d citations", len(state.citations))
@@ -103,7 +104,12 @@ def run_pipeline(
     for pass_ in range(1, settings.pipeline.max_passes + 1):
         if state.pass_ == 1 or settings.pipeline.revision_mode == "regenerate":
             draft = write_article(
-                bundle, profile, client=clients.writer, settings=settings, instructions=instructions
+                bundle,
+                profile,
+                client=clients.writer,
+                settings=settings,
+                instructions=instructions,
+                today=today,
             )
             logger.info("pass %d: wrote draft", pass_)
         else:
@@ -118,6 +124,7 @@ def run_pipeline(
                 client=clients.writer,
                 settings=settings,
                 instructions=instructions,
+                today=today,
             )
             logger.info("pass %d: revised draft", pass_)
 
@@ -127,7 +134,7 @@ def run_pipeline(
             fetcher=fetcher,
             client=clients.factcheck,
             settings=settings,
-            now=now,
+            today=today,
         ):
             state.add_verdict(verdict)
         logger.info(

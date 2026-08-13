@@ -21,6 +21,7 @@ class Corroboration(BaseModel):
 
 class Gather(BaseModel):
     max_sources: int = Field(default=10, ge=1)
+    search_days: int | None = Field(default=365, ge=1, le=365)
 
 
 class Retrieval(BaseModel):

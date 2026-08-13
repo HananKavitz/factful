@@ -36,6 +36,22 @@ def test_gather_defaults() -> None:
     assert Settings().gather.max_sources == 10
 
 
+def test_gather_search_days_default() -> None:
+    assert Settings().gather.search_days == 365
+
+
+def test_gather_search_days_overridable() -> None:
+    settings = Settings.model_validate({"gather": {"search_days": 90}})
+    assert settings.gather.search_days == 90
+
+
+def test_gather_search_days_rejects_out_of_bounds() -> None:
+    with pytest.raises(ValidationError):
+        Settings.model_validate({"gather": {"search_days": 0}})
+    with pytest.raises(ValidationError):
+        Settings.model_validate({"gather": {"search_days": 366}})
+
+
 def test_gather_max_sources_overridable() -> None:
     settings = Settings.model_validate({"gather": {"max_sources": 4}})
     assert settings.gather.max_sources == 4

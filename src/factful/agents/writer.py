@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import date
 
 from factful.config import Settings
 from factful.llm.client import ChatClient
@@ -49,6 +50,10 @@ Rule — factual grounding:
 - Include a short closing note listing the sources used.
 - Match the profile's voice: hook style, sentence and paragraph length, tone,
   transitions, story beats, and CTA/sign-off where defined.
+- Today's date is stated in the prompt. Treat that as the current date. Never imply
+  that older data is current: when a statistic's source predates the current year,
+  present it with its actual year (e.g. "as of 2023") rather than framing it as
+  today's number.
 
 Compose the article now as Markdown that fits the supplied output schema.
 """
@@ -77,9 +82,11 @@ def build_writer_prompt(
     *,
     settings: Settings | None = None,
     instructions: str | None = None,
+    today: date | None = None,
 ) -> str:
     settings = settings if settings is not None else Settings()
     writer = settings.writer
+    today = today or date.today()
     citations = "\n\n".join(
         f"claim_id: {c.claim_id}\n"
         f"claim: {c.claim}\n"
@@ -92,6 +99,7 @@ def build_writer_prompt(
     return (
         f"Topic: {bundle.topic}\n"
         f"Angle: {bundle.angle}\n\n"
+        f"Today is {today.isoformat()}.\n\n"
         f"Style profile:\n{json.dumps(profile.model_dump(), indent=2)}\n\n"
         f"Source bundle (claims to ground the article):\n{citations}\n\n"
         f"{_instructions_section(instructions)}"
@@ -130,9 +138,11 @@ def build_revision_prompt(
     *,
     settings: Settings | None = None,
     instructions: str | None = None,
+    today: date | None = None,
 ) -> str:
     settings = settings if settings is not None else Settings()
     writer = settings.writer
+    today = today or date.today()
     citations = "\n\n".join(
         f"claim_id: {c.claim_id}\n"
         f"claim: {c.claim}\n"
@@ -145,6 +155,7 @@ def build_revision_prompt(
     return (
         f"Topic: {bundle.topic}\n"
         f"Angle: {bundle.angle}\n\n"
+        f"Today is {today.isoformat()}.\n\n"
         f"Style profile:\n{json.dumps(profile.model_dump(), indent=2)}\n\n"
         f"Source bundle (claims to ground the article):\n{citations}\n\n"
         f"Current draft:\n{draft.markdown}\n\n"
@@ -167,9 +178,17 @@ def revise_article(
     client: ChatClient,
     settings: Settings | None = None,
     instructions: str | None = None,
+    today: date | None = None,
 ) -> Draft:
     prompt = build_revision_prompt(
-        draft, verdicts, critique, bundle, profile, settings=settings, instructions=instructions
+        draft,
+        verdicts,
+        critique,
+        bundle,
+        profile,
+        settings=settings,
+        instructions=instructions,
+        today=today,
     )
     result = client.chat_completion(prompt=prompt, schema=Draft)
     if not isinstance(result, Draft):
@@ -192,8 +211,11 @@ def write_article(
     client: ChatClient,
     settings: Settings | None = None,
     instructions: str | None = None,
+    today: date | None = None,
 ) -> Draft:
-    prompt = build_writer_prompt(bundle, profile, settings=settings, instructions=instructions)
+    prompt = build_writer_prompt(
+        bundle, profile, settings=settings, instructions=instructions, today=today
+    )
     result = client.chat_completion(prompt=prompt, schema=Draft)
     if not isinstance(result, Draft):
         raise TypeError(f"expected Draft, got {type(result).__name__}")

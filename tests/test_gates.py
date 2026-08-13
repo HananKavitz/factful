@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 
 from factful.verify.gates import numeric_gates, parse_date
 
-NOW = datetime(2024, 6, 1, tzinfo=UTC).date()
+TODAY = datetime(2024, 6, 1, tzinfo=UTC).date()
 
 
 def test_percentage_over_100_flagged() -> None:
@@ -11,7 +11,7 @@ def test_percentage_over_100_flagged() -> None:
         "150%",
         "the index rose by 150 percent, a record",
         "2023-01-01",
-        now=NOW,
+        today=TODAY,
     )
     assert any("implausible percentage" in f for f in flags)
 
@@ -22,19 +22,19 @@ def test_sane_percentage_not_flagged() -> None:
         "85%",
         "the index rose 85 percent.",
         "2023-01-01",
-        now=NOW,
+        today=TODAY,
     )
     assert not any("implausible percentage" in f for f in flags)
 
 
 def test_fresh_source_not_flagged_stale() -> None:
-    flags = numeric_gates("x", "12%", "grew 12 percent.", "2024-01-01", now=NOW)
+    flags = numeric_gates("x", "12%", "grew 12 percent.", "2024-01-01", today=TODAY)
     assert not any("years old" in f for f in flags)
 
 
 def test_stale_source_flagged() -> None:
     flags = numeric_gates(
-        "x", "12%", "grew 12 percent.", "2023-01-01", max_currency_years=1, now=NOW
+        "x", "12%", "grew 12 percent.", "2023-01-01", max_currency_years=1, today=TODAY
     )
     assert any("years old" in f for f in flags)
 
@@ -45,13 +45,13 @@ def test_percent_point_confusion_flagged() -> None:
         "30%",
         "the rate rose from 10 percent to 40 percent.",
         "2024-01-01",
-        now=NOW,
+        today=TODAY,
     )
     assert any("percent-point" in f for f in flags)
 
 
 def test_unparseable_date_skipped() -> None:
-    flags = numeric_gates("x", "12%", "grew 12 percent.", "not-a-date", now=NOW)
+    flags = numeric_gates("x", "12%", "grew 12 percent.", "not-a-date", today=TODAY)
     assert all("years old" not in f for f in flags)
 
 
@@ -74,7 +74,7 @@ def test_rfc3339_offset_stale_detected() -> None:
         "grew 12 percent.",
         "2023-01-01T10:00:00-05:00",
         max_currency_years=1,
-        now=date(2024, 6, 1),
+        today=date(2024, 6, 1),
     )
     assert any("years old" in f for f in flags)
 

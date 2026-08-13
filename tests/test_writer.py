@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from factful.agents.writer import (
     build_revision_prompt,
@@ -56,6 +56,21 @@ def test_build_writer_prompt_includes_word_bounds() -> None:
     assert "2000" in prompt
     assert "2500" in prompt
     assert "words" in prompt
+
+
+def test_build_writer_prompt_injects_today_date() -> None:
+    prompt = build_writer_prompt(make_bundle(), profile(), today=date(2026, 8, 13))
+    assert "Today is 2026-08-13" in prompt
+
+
+def test_build_writer_prompt_defaults_to_current_date() -> None:
+    prompt = build_writer_prompt(make_bundle(), profile())
+    assert f"Today is {date.today().isoformat()}" in prompt
+
+
+def test_build_writer_prompt_warns_against_presenting_stale_data_as_current() -> None:
+    prompt = build_writer_prompt(make_bundle(), profile(), today=date(2026, 8, 13))
+    assert "as of" in prompt.lower()
 
 
 def test_build_writer_prompt_includes_custom_instructions() -> None:
@@ -170,6 +185,19 @@ def test_build_revision_prompt_includes_word_bounds() -> None:
     assert "1500" in prompt
     assert "2000" in prompt
     assert "2500" in prompt
+
+
+def test_build_revision_prompt_injects_today_date() -> None:
+    draft = Draft(title="Chips", markdown="The market grew 12% [[c1]].")
+    prompt = build_revision_prompt(
+        draft,
+        make_verdicts(),
+        make_critique(),
+        make_bundle(),
+        profile(),
+        today=date(2026, 8, 13),
+    )
+    assert "Today is 2026-08-13" in prompt
 
 
 def test_build_revision_prompt_includes_custom_instructions() -> None:

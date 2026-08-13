@@ -27,24 +27,29 @@ class TavilySearcher:
         *,
         max_results: int = 5,
         search_depth: str = "advanced",
+        days: int | None = None,
         timeout: float = 30.0,
         _client: httpx.Client | None = None,
     ) -> None:
         self._api_key = api_key
         self._max_results = max_results
         self._search_depth = search_depth
+        self._days = days
         self._client = _client or httpx.Client(timeout=timeout)
 
     def search(self, query: str) -> list[SearchResult]:
+        payload: dict[str, object] = {
+            "api_key": self._api_key,
+            "query": query,
+            "search_depth": self._search_depth,
+            "max_results": self._max_results,
+        }
+        if self._days is not None:
+            payload["days"] = self._days
         try:
             response = self._client.post(
                 TAVILY_SEARCH_URL,
-                json={
-                    "api_key": self._api_key,
-                    "query": query,
-                    "search_depth": self._search_depth,
-                    "max_results": self._max_results,
-                },
+                json=payload,
             )
             response.raise_for_status()
         except httpx.HTTPError as exc:
