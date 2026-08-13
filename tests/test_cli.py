@@ -1,3 +1,6 @@
+import logging
+import re
+
 import pytest
 
 from factful import cli
@@ -122,3 +125,41 @@ def test_generate_passes_angle_and_max_sources(
     )
     assert rc == 0
     assert captured == {"topic": "AI trends", "angle": "chip supply", "max_sources": 4}
+
+
+def test_generate_verbose_emits_info_to_stderr(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: object,
+) -> None:
+    set_keys(monkeypatch)
+
+    def fake_run(*a, **k):
+        logging.getLogger("factful.pipeline").info("gathered 3 citations")
+        return make_result()
+
+    monkeypatch.setattr(cli, "run_pipeline", fake_run)
+    out = tmp_path / "out"
+    rc = main(["generate", "AI trends", "--verbose", "--out", str(out)])
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "gathered 3 citations" in err
+    assert re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", err)
+
+
+def test_generate_without_verbose_suppresses_info(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: object,
+) -> None:
+    set_keys(monkeypatch)
+
+    def fake_run(*a, **k):
+        logging.getLogger("factful.pipeline").info("gathered 3 citations")
+        return make_result()
+
+    monkeypatch.setattr(cli, "run_pipeline", fake_run)
+    out = tmp_path / "out"
+    rc = main(["generate", "AI trends", "--out", str(out)])
+    assert rc == 0
+    assert "gathered 3 citations" not in capsys.readouterr().err

@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime
 
 import pytest
@@ -220,6 +221,28 @@ def test_run_pipeline_single_pass_publishes() -> None:
     assert result.state.score == 90
     assert len(result.state.verdicts) == 1
     assert result.unresolved == []
+
+
+def test_run_pipeline_logs_progress(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="factful.pipeline")
+    client = FakeClient(drafts=[draft()], scores=[90])
+    run_pipeline(
+        "Semiconductors",
+        "supply risk",
+        settings=settings(),
+        searcher=FakeSearcher(),
+        fetcher=FakeFetcher(),
+        clients=clients(client),
+        profile=profile(),
+    )
+    messages = [record.message for record in caplog.records]
+    assert any("gathered 1 citations" in m for m in messages)
+    assert any("pass 1: wrote draft" in m for m in messages)
+    assert any("pass 1: fact-checked 1 claims" in m for m in messages)
+    assert any("pass 1: critique score 90" in m for m in messages)
+    assert any("decision: publish (hard gate passed)" in m for m in messages)
 
 
 def test_run_pipeline_patches_until_hard_gate() -> None:

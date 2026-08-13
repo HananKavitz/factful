@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Literal
@@ -17,6 +18,8 @@ from factful.llm.client import ChatClient
 from factful.schemas import FactVerdict
 from factful.state import CRITICAL_STATUSES, PassRecord, PipelineState
 from factful.style.schema import StyleProfile
+
+logger = logging.getLogger(__name__)
 
 Decision = Literal["publish", "patch", "stop"]
 
@@ -86,6 +89,7 @@ def run_pipeline(
         max_sources=max_sources,
     )
     state = PipelineState(topic=topic, angle=angle, source_bundle=bundle)
+    logger.info("gathered %d citations", len(state.citations))
 
     previous_draft = None
     previous_verdicts: list[FactVerdict] = []
@@ -94,6 +98,7 @@ def run_pipeline(
     for pass_ in range(1, settings.pipeline.max_passes + 1):
         if state.pass_ == 1 or settings.pipeline.revision_mode == "regenerate":
             draft = write_article(bundle, profile, client=clients.writer)
+            logger.info("pass %d: wrote draft", pass_)
         else:
             if previous_draft is None or previous_critique is None:
                 raise RuntimeError("cannot patch pass 1 without prior feedback")
@@ -105,6 +110,7 @@ def run_pipeline(
                 profile,
                 client=clients.writer,
             )
+            logger.info("pass %d: revised draft", pass_)
 
         for verdict in factcheck_article(
             draft,
@@ -115,9 +121,16 @@ def run_pipeline(
             now=now,
         ):
             state.add_verdict(verdict)
+        logger.info(
+            "pass %d: fact-checked %d claims (%d critical)",
+            pass_,
+            len(state.verdicts),
+            state.critical_failures,
+        )
         report = critique(draft, client=clients.critic)
         state.add_critique(report)
         state.record_pass(score=report.score, draft=draft.markdown)
+        logger.info("pass %d: critique score %g", pass_, report.score)
 
         decision = converge(
             score=report.score,
@@ -127,6 +140,7 @@ def run_pipeline(
             history=state.passes[:-1],
         )
         if decision.decision != "patch":
+            logger.info("decision: %s (%s)", decision.decision, decision.reason)
             result = PipelineResult(
                 state=state,
                 decision=decision.decision,

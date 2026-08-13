@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import re
 from pathlib import Path
@@ -25,13 +26,22 @@ _DEFAULT_ANGLE = "explore the topic through key numbers and statistics"
 
 
 def build_parser() -> argparse.ArgumentParser:
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="log pipeline progress to stderr",
+    )
     parser = argparse.ArgumentParser(
         prog="factful",
+        parents=[common],
         description="Agentic, fact-grounded Substack article generator",
     )
     parser.add_argument("--version", action="version", version=f"factful {__version__}")
     sub = parser.add_subparsers(dest="command")
-    generate = sub.add_parser("generate", help="generate an article")
+    generate = sub.add_parser("generate", parents=[common], help="generate an article")
     generate.add_argument("topic", type=str, help="article topic")
     generate.add_argument("--angle", type=str, default=_DEFAULT_ANGLE, help="framing angle")
     generate.add_argument(
@@ -40,7 +50,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="cap on sources gathered (default: settings.gather.max_sources)",
     )
     generate.add_argument("--out", type=str, default="output", help="output directory")
-    style = sub.add_parser("style", help="extract a writing-style profile from samples")
+    style = sub.add_parser(
+        "style", parents=[common], help="extract a writing-style profile from samples"
+    )
     style.add_argument("samples", type=str, nargs="+", help="sample article markdown files")
     style.add_argument("--name", type=str, default="voice", help="profile/voice name")
     style.add_argument(
@@ -201,9 +213,21 @@ def _generate_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _configure_logging(verbose: bool) -> None:
+    logger = logging.getLogger("factful")
+    logger.setLevel(logging.INFO if verbose else logging.WARNING)
+    for handler in list(logger.handlers):
+        if isinstance(handler, logging.StreamHandler):
+            logger.removeHandler(handler)
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("[factful] %(asctime)s %(message)s"))
+    logger.addHandler(handler)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    _configure_logging(bool(getattr(args, "verbose", False)))
     if args.command is None:
         parser.print_help()
         return 0
