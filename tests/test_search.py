@@ -56,7 +56,7 @@ def test_search_posts_expected_body() -> None:
     body = json.loads(captured["body"])
     assert body["api_key"] == "tavily-secret"
     assert body["query"] == "climate figures"
-    assert body["search_depth"] == "high"
+    assert body["search_depth"] == "advanced"
     assert body["max_results"] == 5
 
 

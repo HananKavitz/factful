@@ -23,7 +23,7 @@ class TavilySearcher:
         api_key: str,
         *,
         max_results: int = 5,
-        search_depth: str = "high",
+        search_depth: str = "advanced",
         timeout: float = 30.0,
         _client: httpx.Client | None = None,
     ) -> None:

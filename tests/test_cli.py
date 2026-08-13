@@ -54,6 +54,7 @@ def test_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_generate_requires_llm_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli, "load_dotenv", lambda: None)
     monkeypatch.delenv("LLM_API_KEY", raising=False)
     monkeypatch.setenv("TAVILY_API_KEY", "tvly-test")
     with pytest.raises(SystemExit, match="LLM_API_KEY is not set"):
@@ -61,6 +62,7 @@ def test_generate_requires_llm_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_generate_requires_tavily_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli, "load_dotenv", lambda: None)
     set_keys(monkeypatch)
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
     with pytest.raises(SystemExit, match="TAVILY_API_KEY is not set"):

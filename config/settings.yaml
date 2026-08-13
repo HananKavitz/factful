@@ -23,8 +23,8 @@ writer:
 llm:
   base_url: https://openrouter.ai/api/v1
   models:
-    style: anthropic/claude-3.5-sonnet
+    style: anthropic/claude-sonnet-4.5
     gather: openai/gpt-4o-mini
-    writer: anthropic/claude-3.5-sonnet
+    writer: anthropic/claude-sonnet-4.5
     factcheck: openai/gpt-4o-mini
     critic: openai/gpt-4o-mini

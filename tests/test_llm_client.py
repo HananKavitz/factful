@@ -44,6 +44,7 @@ def test_builds_expected_request_body() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         captured["body"] = json.loads(request.content)
         captured["auth"] = request.headers.get("authorization")
+        captured["url"] = str(request.url)
         return httpx.Response(200, json={"choices": [{"message": {"content": '{"name":"x"}'}}]})
 
     _client(handler).chat_completion(prompt="hello", schema=Dummy)
@@ -52,6 +53,35 @@ def test_builds_expected_request_body() -> None:
     assert captured["body"]["model"] == "m"
     assert captured["body"]["messages"] == [{"role": "user", "content": "hello"}]
     assert captured["body"]["response_format"] == {"type": "json_object"}
+    assert captured["url"] == "https://openrouter.ai/api/v1/chat/completions"
+
+
+def test_uses_full_endpoint_when_base_url_lacks_path() -> None:
+    captured: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"name":"x"}'}}]})
+
+    client = OpenRouterClient(
+        model="m",
+        api_key="k",
+        base_url="https://openrouter.ai/api/v1",
+        _client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    client.chat_completion(prompt="p", schema=Dummy)
+    assert captured["url"] == "https://openrouter.ai/api/v1/chat/completions"
+
+
+def test_parses_markdown_fenced_json() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": '```json\n{"name":"x"}\n```'}}]},
+        )
+
+    out = _client(handler).chat_completion(prompt="p", schema=Dummy)
+    assert out.name == "x"
 
 
 def test_malformed_json_raises() -> None:
@@ -62,9 +92,93 @@ def test_malformed_json_raises() -> None:
         _client(handler).chat_completion(prompt="p", schema=Dummy)
 
 
+def test_retries_then_succeeds_on_empty_body() -> None:
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(200, text="")
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"name":"x"}'}}]})
+
+    out = _client(handler).chat_completion(prompt="p", schema=Dummy)
+    assert out.name == "x"
+    assert len(calls) == 2
+
+
+def test_empty_body_raises_clear_error_after_retries() -> None:
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(200, text="")
+
+    with pytest.raises(ValueError, match="unusable response"):
+        _client(handler).chat_completion(prompt="p", schema=Dummy)
+    assert len(calls) == 3
+
+
+def test_retries_on_read_timeout_then_succeeds() -> None:
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            raise httpx.ReadTimeout("timed out", request=request)
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"name":"x"}'}}]})
+
+    out = _client(handler).chat_completion(prompt="p", schema=Dummy)
+    assert out.name == "x"
+    assert len(calls) == 2
+
+
+def test_persistent_transport_error_raises_after_retries() -> None:
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        raise httpx.ReadTimeout("timed out", request=request)
+
+    with pytest.raises(httpx.ReadTimeout):
+        _client(handler).chat_completion(prompt="p", schema=Dummy)
+    assert len(calls) == 3
+
+
+def test_retries_when_model_echoes_schema() -> None:
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {"message": {"content": '{"properties": {"status": {"type": "string"}}}'}}
+                    ]
+                },
+            )
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"name":"x"}'}}]})
+
+    out = _client(handler).chat_completion(prompt="p", schema=Dummy)
+    assert out.name == "x"
+    assert len(calls) == 2
+
+
 def test_http_error_propagates() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(500, text="boom")
 
     with pytest.raises(httpx.HTTPStatusError):
+        _client(handler).chat_completion(prompt="p", schema=Dummy)
+
+
+def test_client_error_reports_provider_body() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={"error": {"message": "context_length_exceeded: prompt too long"}},
+        )
+
+    with pytest.raises(ValueError, match="context_length_exceeded"):
         _client(handler).chat_completion(prompt="p", schema=Dummy)
