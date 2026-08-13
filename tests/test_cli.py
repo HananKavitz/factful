@@ -127,6 +127,66 @@ def test_generate_passes_angle_and_max_sources(
     assert captured == {"topic": "AI trends", "angle": "chip supply", "max_sources": 4}
 
 
+def test_generate_passes_instructions_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: object,
+) -> None:
+    set_keys(monkeypatch)
+    captured: dict = {}
+
+    def fake_run(topic, angle, *, instructions=None, **kwargs):
+        captured["instructions"] = instructions
+        return make_result()
+
+    monkeypatch.setattr(cli, "run_pipeline", fake_run)
+    out = tmp_path / "out"
+    rc = main(["generate", "AI trends", "--instructions", "End with a CTA.", "--out", str(out)])
+    assert rc == 0
+    assert captured == {"instructions": "End with a CTA."}
+
+
+def test_generate_reads_instructions_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    set_keys(monkeypatch)
+    instructions_file = tmp_path / "instructions.md"
+    instructions_file.write_text("Keep jargon minimal.\nInclude a data table.", encoding="utf-8")
+    captured: dict = {}
+
+    def fake_run(topic, angle, *, instructions=None, **kwargs):
+        captured["instructions"] = instructions
+        return make_result()
+
+    monkeypatch.setattr(cli, "run_pipeline", fake_run)
+    out = tmp_path / "out"
+    rc = main(
+        ["generate", "AI trends", "--instructions-file", str(instructions_file), "--out", str(out)]
+    )
+    assert rc == 0
+    assert captured == {"instructions": "Keep jargon minimal.\nInclude a data table."}
+
+
+def test_generate_rejects_both_instructions_sources(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    set_keys(monkeypatch)
+    instructions_file = tmp_path / "instructions.md"
+    instructions_file.write_text("jargon free", encoding="utf-8")
+    with pytest.raises(SystemExit, match="instructions"):
+        main(
+            [
+                "generate",
+                "AI trends",
+                "--instructions",
+                "End with a CTA.",
+                "--instructions-file",
+                str(instructions_file),
+            ]
+        )
+
+
 def test_generate_verbose_emits_info_to_stderr(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

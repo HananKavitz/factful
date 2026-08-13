@@ -78,6 +78,7 @@ def run_pipeline(
     profile: StyleProfile,
     max_sources: int | None = None,
     now: date | None = None,
+    instructions: str | None = None,
 ) -> PipelineResult:
     bundle = gather(
         topic,
@@ -97,7 +98,9 @@ def run_pipeline(
 
     for pass_ in range(1, settings.pipeline.max_passes + 1):
         if state.pass_ == 1 or settings.pipeline.revision_mode == "regenerate":
-            draft = write_article(bundle, profile, client=clients.writer, settings=settings)
+            draft = write_article(
+                bundle, profile, client=clients.writer, settings=settings, instructions=instructions
+            )
             logger.info("pass %d: wrote draft", pass_)
         else:
             if previous_draft is None or previous_critique is None:
@@ -110,6 +113,7 @@ def run_pipeline(
                 profile,
                 client=clients.writer,
                 settings=settings,
+                instructions=instructions,
             )
             logger.info("pass %d: revised draft", pass_)
 

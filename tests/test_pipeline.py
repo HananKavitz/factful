@@ -267,6 +267,26 @@ def test_run_pipeline_patches_until_hard_gate() -> None:
     assert "Current draft:" in draft_calls[1]
 
 
+def test_run_pipeline_passes_instructions_to_writer_every_pass() -> None:
+    client = FakeClient(
+        drafts=[draft("weak draft [[c1]]"), draft("better draft [[c1]]")], scores=[70, 90]
+    )
+    result = run_pipeline(
+        "Semiconductors",
+        "supply risk",
+        settings=settings(),
+        searcher=FakeSearcher(),
+        fetcher=FakeFetcher(),
+        clients=clients(client),
+        profile=profile(),
+        instructions="Keep jargon minimal. End with a CTA.",
+    )
+    assert result.decision == "publish"
+    draft_calls = [prompt for prompt, schema in client.calls if schema is Draft]
+    assert len(draft_calls) == 2
+    assert all("Keep jargon minimal. End with a CTA." in prompt for prompt in draft_calls)
+
+
 def test_run_pipeline_regenerate_mode_rewrites_each_pass() -> None:
     cfg = Settings()
     cfg.pipeline.revision_mode = "regenerate"

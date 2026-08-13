@@ -49,6 +49,16 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         help="cap on sources gathered (default: settings.gather.max_sources)",
     )
+    generate.add_argument(
+        "--instructions",
+        type=str,
+        help="optional writer instructions for the article",
+    )
+    generate.add_argument(
+        "--instructions-file",
+        type=Path,
+        help="path to a file with writer instructions (mutually exclusive with --instructions)",
+    )
     generate.add_argument("--out", type=str, default="output", help="output directory")
     style = sub.add_parser(
         "style", parents=[common], help="extract a writing-style profile from samples"
@@ -170,6 +180,16 @@ def _write_outputs(out_dir: Path, result: PipelineResult) -> tuple[Path, Path, P
     return draft_path, report_path, json_path
 
 
+def _load_instructions(args: argparse.Namespace) -> str | None:
+    inline: str | None = args.instructions
+    file_path: Path | None = args.instructions_file
+    if inline is not None and file_path is not None:
+        raise SystemExit("--instructions and --instructions-file are mutually exclusive")
+    if file_path is not None:
+        return file_path.read_text(encoding="utf-8")
+    return inline
+
+
 def _generate_command(args: argparse.Namespace) -> int:
     load_dotenv()
     env: dict[str, str] = dict(os.environ)
@@ -201,6 +221,7 @@ def _generate_command(args: argparse.Namespace) -> int:
         clients=clients,
         profile=profile,
         max_sources=args.max_sources,
+        instructions=_load_instructions(args),
     )
 
     scores = ", ".join(f"{record.score:.0f}" for record in result.state.passes)

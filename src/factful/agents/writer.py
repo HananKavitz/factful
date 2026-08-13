@@ -29,6 +29,12 @@ def _revision_length_guidance(min_words: int, target_words: int, max_words: int)
     )
 
 
+def _instructions_section(instructions: str | None) -> str:
+    if not instructions:
+        return ""
+    return f"Writer instructions:\n{instructions}\n\n"
+
+
 _WRITER_INSTRUCTIONS = """
 You are an expert Substack writer. Compose a COMPLETE Markdown article on the
 topic below, in the exact voice and style of the supplied style profile.
@@ -69,6 +75,7 @@ def build_writer_prompt(
     profile: StyleProfile,
     *,
     settings: Settings | None = None,
+    instructions: str | None = None,
 ) -> str:
     settings = settings if settings is not None else Settings()
     writer = settings.writer
@@ -86,6 +93,7 @@ def build_writer_prompt(
         f"Angle: {bundle.angle}\n\n"
         f"Style profile:\n{json.dumps(profile.model_dump(), indent=2)}\n\n"
         f"Source bundle (claims to ground the article):\n{citations}\n\n"
+        f"{_instructions_section(instructions)}"
         f"{_WRITER_INSTRUCTIONS}\n\n"
         f"{_length_guidance(writer.min_words, writer.target_words, writer.max_words)}\n\n"
         f"Output schema (return JSON matching this shape):\n"
@@ -120,6 +128,7 @@ def build_revision_prompt(
     profile: StyleProfile,
     *,
     settings: Settings | None = None,
+    instructions: str | None = None,
 ) -> str:
     settings = settings if settings is not None else Settings()
     writer = settings.writer
@@ -139,6 +148,7 @@ def build_revision_prompt(
         f"Source bundle (claims to ground the article):\n{citations}\n\n"
         f"Current draft:\n{draft.markdown}\n\n"
         f"Feedback to address:\n{_render_feedback(verdicts, critique)}\n\n"
+        f"{_instructions_section(instructions)}"
         f"{_REVISION_INSTRUCTIONS}\n\n"
         f"{_revision_length_guidance(writer.min_words, writer.target_words, writer.max_words)}\n\n"
         f"Output schema (return JSON matching this shape):\n"
@@ -155,8 +165,11 @@ def revise_article(
     *,
     client: ChatClient,
     settings: Settings | None = None,
+    instructions: str | None = None,
 ) -> Draft:
-    prompt = build_revision_prompt(draft, verdicts, critique, bundle, profile, settings=settings)
+    prompt = build_revision_prompt(
+        draft, verdicts, critique, bundle, profile, settings=settings, instructions=instructions
+    )
     result = client.chat_completion(prompt=prompt, schema=Draft)
     if not isinstance(result, Draft):
         raise TypeError(f"expected Draft, got {type(result).__name__}")
@@ -177,8 +190,9 @@ def write_article(
     *,
     client: ChatClient,
     settings: Settings | None = None,
+    instructions: str | None = None,
 ) -> Draft:
-    prompt = build_writer_prompt(bundle, profile, settings=settings)
+    prompt = build_writer_prompt(bundle, profile, settings=settings, instructions=instructions)
     result = client.chat_completion(prompt=prompt, schema=Draft)
     if not isinstance(result, Draft):
         raise TypeError(f"expected Draft, got {type(result).__name__}")
