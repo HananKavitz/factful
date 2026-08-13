@@ -116,6 +116,11 @@ def draft(text: str = "Revenue hit $4B in 2024 [[c1]].") -> Draft:
     return Draft(title="Chips", markdown=text)
 
 
+def long_draft(text: str = "Revenue hit $4B in 2024 [[c1]].") -> Draft:
+    filler = "The sector keeps growing. " * 400
+    return Draft(title="Chips", markdown=f"{text} {filler}")
+
+
 def test_converge_publishes_on_hard_gate() -> None:
     result = converge(
         score=90,
@@ -123,6 +128,7 @@ def test_converge_publishes_on_hard_gate() -> None:
         pass_=1,
         settings=settings(),
         history=[],
+        words=2000,
     )
     assert result == ConvergeResult(decision="publish", reason="hard gate passed")
 
@@ -134,6 +140,7 @@ def test_converge_patches_when_below_gate() -> None:
         pass_=1,
         settings=settings(),
         history=[],
+        words=2000,
     )
     assert result.decision == "patch"
 
@@ -145,6 +152,7 @@ def test_converge_stops_on_oscillation() -> None:
         pass_=2,
         settings=settings(),
         history=[PassRecord(score=85, draft="d", critical_failures=0)],
+        words=2000,
     )
     assert result.decision == "stop"
     assert "regressed" in result.reason
@@ -157,6 +165,7 @@ def test_converge_stops_on_diminishing_returns() -> None:
         pass_=2,
         settings=settings(),
         history=[PassRecord(score=84, draft="d", critical_failures=0)],
+        words=2000,
     )
     assert result.decision == "stop"
     assert "diminishing" in result.reason
@@ -169,6 +178,7 @@ def test_converge_continues_while_improving() -> None:
         pass_=2,
         settings=settings(),
         history=[PassRecord(score=80, draft="d", critical_failures=0)],
+        words=2000,
     )
     assert result.decision == "patch"
 
@@ -183,6 +193,7 @@ def test_converge_stops_at_max_passes_cap() -> None:
             PassRecord(score=60, draft="d1", critical_failures=1),
             PassRecord(score=65, draft="d2", critical_failures=1),
         ],
+        words=2000,
     )
     assert result.decision == "stop"
     assert "max passes" in result.reason
@@ -198,12 +209,52 @@ def test_converge_hard_gate_beats_cap() -> None:
             PassRecord(score=80, draft="d1", critical_failures=0),
             PassRecord(score=85, draft="d2", critical_failures=0),
         ],
+        words=2000,
     )
     assert result.decision == "publish"
 
 
+def test_converge_never_publishes_below_word_floor() -> None:
+    result = converge(
+        score=95,
+        critical_failures=0,
+        pass_=1,
+        settings=settings(),
+        history=[],
+        words=500,
+    )
+    assert result.decision == "patch"
+    assert "out of bounds" in result.reason
+
+
+def test_converge_never_publishes_above_word_ceiling() -> None:
+    result = converge(
+        score=95,
+        critical_failures=0,
+        pass_=1,
+        settings=settings(),
+        history=[],
+        words=3000,
+    )
+    assert result.decision == "patch"
+    assert "out of bounds" in result.reason
+
+
+def test_converge_below_floor_overrides_stop_guards() -> None:
+    result = converge(
+        score=80,
+        critical_failures=0,
+        pass_=2,
+        settings=settings(),
+        history=[PassRecord(score=85, draft="d", critical_failures=0)],
+        words=800,
+    )
+    assert result.decision == "patch"
+
+
 def test_run_pipeline_single_pass_publishes() -> None:
-    client = FakeClient(drafts=[draft()], scores=[90])
+    good = long_draft()
+    client = FakeClient(drafts=[good], scores=[90])
     result = run_pipeline(
         "Semiconductors",
         "supply risk",
@@ -217,7 +268,7 @@ def test_run_pipeline_single_pass_publishes() -> None:
     assert result.reason == "hard gate passed"
     assert result.state.pass_ == 1
     assert len(result.state.passes) == 1
-    assert result.state.draft == "Revenue hit $4B in 2024 [[c1]]."
+    assert result.state.draft == good.markdown
     assert result.state.score == 90
     assert len(result.state.verdicts) == 1
     assert result.unresolved == []
@@ -227,7 +278,7 @@ def test_run_pipeline_logs_progress(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.INFO, logger="factful.pipeline")
-    client = FakeClient(drafts=[draft()], scores=[90])
+    client = FakeClient(drafts=[long_draft()], scores=[90])
     run_pipeline(
         "Semiconductors",
         "supply risk",
@@ -246,9 +297,8 @@ def test_run_pipeline_logs_progress(
 
 
 def test_run_pipeline_patches_until_hard_gate() -> None:
-    client = FakeClient(
-        drafts=[draft("weak draft [[c1]]"), draft("better draft [[c1]]")], scores=[70, 90]
-    )
+    good = long_draft("better draft [[c1]]")
+    client = FakeClient(drafts=[long_draft("weak draft [[c1]]"), good], scores=[70, 90])
     result = run_pipeline(
         "Semiconductors",
         "supply risk",
@@ -261,7 +311,7 @@ def test_run_pipeline_patches_until_hard_gate() -> None:
     assert result.decision == "publish"
     assert result.state.pass_ == 2
     assert len(result.state.passes) == 2
-    assert result.state.draft == "better draft [[c1]]"
+    assert result.state.draft == good.markdown
     draft_calls = [prompt for prompt, schema in client.calls if schema is Draft]
     assert len(draft_calls) == 2
     assert "Current draft:" in draft_calls[1]
@@ -269,7 +319,8 @@ def test_run_pipeline_patches_until_hard_gate() -> None:
 
 def test_run_pipeline_passes_instructions_to_writer_every_pass() -> None:
     client = FakeClient(
-        drafts=[draft("weak draft [[c1]]"), draft("better draft [[c1]]")], scores=[70, 90]
+        drafts=[long_draft("weak draft [[c1]]"), long_draft("better draft [[c1]]")],
+        scores=[70, 90],
     )
     result = run_pipeline(
         "Semiconductors",
@@ -290,7 +341,9 @@ def test_run_pipeline_passes_instructions_to_writer_every_pass() -> None:
 def test_run_pipeline_regenerate_mode_rewrites_each_pass() -> None:
     cfg = Settings()
     cfg.pipeline.revision_mode = "regenerate"
-    client = FakeClient(drafts=[draft("first [[c1]]"), draft("second [[c1]]")], scores=[70, 90])
+    client = FakeClient(
+        drafts=[long_draft("first [[c1]]"), long_draft("second [[c1]]")], scores=[70, 90]
+    )
     result = run_pipeline(
         "Semiconductors",
         "supply risk",
@@ -308,7 +361,7 @@ def test_run_pipeline_regenerate_mode_rewrites_each_pass() -> None:
 
 def test_run_pipeline_stops_at_max_passes_cap() -> None:
     client = FakeClient(
-        drafts=[draft(f"d{i} [[c1]]") for i in range(3)],
+        drafts=[long_draft(f"d{i} [[c1]]") for i in range(3)],
         scores=[60, 70, 80],
     )
     result = run_pipeline(
@@ -327,7 +380,8 @@ def test_run_pipeline_stops_at_max_passes_cap() -> None:
 
 def test_run_pipeline_keeps_best_draft_on_oscillation() -> None:
     client = FakeClient(
-        drafts=[draft("best draft [[c1]]"), draft("regressed draft [[c1]]")], scores=[84, 60]
+        drafts=[long_draft("best draft [[c1]]"), long_draft("regressed draft [[c1]]")],
+        scores=[84, 60],
     )
     result = run_pipeline(
         "Semiconductors",
@@ -340,7 +394,7 @@ def test_run_pipeline_keeps_best_draft_on_oscillation() -> None:
     )
     assert result.decision == "stop"
     assert "regressed" in result.reason
-    assert result.state.draft == "best draft [[c1]]"
+    assert result.state.draft == long_draft("best draft [[c1]]").markdown
 
 
 def test_run_pipeline_reports_unresolved_critical_claims() -> None:
@@ -352,7 +406,7 @@ def test_run_pipeline_reports_unresolved_critical_claims() -> None:
             text="The economy is doing fine. Everything is going great.",
         )
     )
-    client = FakeClient(drafts=[draft(), draft()], scores=[70, 70])
+    client = FakeClient(drafts=[long_draft(), long_draft()], scores=[70, 70])
     result = run_pipeline(
         "Semiconductors",
         "supply risk",
@@ -376,6 +430,41 @@ def test_run_pipeline_raises_when_gather_yields_nothing() -> None:
             "supply risk",
             settings=settings(),
             searcher=FakeSearcher(results=[]),
+            fetcher=FakeFetcher(),
+            clients=clients(client),
+            profile=profile(),
+        )
+
+
+def test_run_pipeline_refuses_to_publish_below_floor_and_keeps_patching() -> None:
+    good = long_draft("expanded draft [[c1]]")
+    client = FakeClient(drafts=[draft("too short [[c1]]"), good], scores=[95, 95])
+    result = run_pipeline(
+        "Semiconductors",
+        "supply risk",
+        settings=settings(),
+        searcher=FakeSearcher(),
+        fetcher=FakeFetcher(),
+        clients=clients(client),
+        profile=profile(),
+    )
+    assert result.decision == "publish"
+    assert result.state.pass_ == 2
+    assert len(result.state.passes) == 2
+    assert result.state.draft == good.markdown
+
+
+def test_run_pipeline_fails_fast_when_floor_never_met() -> None:
+    client = FakeClient(
+        drafts=[draft("d1 [[c1]]"), draft("d2 [[c1]]"), draft("d3 [[c1]]")],
+        scores=[95, 95, 95],
+    )
+    with pytest.raises(RuntimeError, match="max_passes"):
+        run_pipeline(
+            "Semiconductors",
+            "supply risk",
+            settings=settings(),
+            searcher=FakeSearcher(),
             fetcher=FakeFetcher(),
             clients=clients(client),
             profile=profile(),

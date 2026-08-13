@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Literal
 
-from factful.agents.critic import critique
+from factful.agents.critic import critique, word_count
 from factful.agents.factcheck import factcheck_article
 from factful.agents.fetch import Fetcher
 from factful.agents.gather import gather
@@ -53,8 +53,11 @@ def converge(
     pass_: int,
     settings: Settings,
     history: list[PassRecord],
+    words: int,
 ) -> ConvergeResult:
     """Decide whether to publish, patch again, or stop after a pass."""
+    if not (settings.writer.min_words <= words <= settings.writer.max_words):
+        return ConvergeResult(decision="patch", reason="word count out of bounds; patching")
     if critical_failures == 0 and score >= settings.pipeline.score_accept:
         return ConvergeResult(decision="publish", reason="hard gate passed")
     previous = history[-1].score if history else None
@@ -143,6 +146,7 @@ def run_pipeline(
             pass_=pass_,
             settings=settings,
             history=state.passes[:-1],
+            words=word_count(draft.markdown),
         )
         if decision.decision != "patch":
             logger.info("decision: %s (%s)", decision.decision, decision.reason)

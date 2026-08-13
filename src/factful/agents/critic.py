@@ -7,7 +7,7 @@ import re
 
 from factful.config import Settings
 from factful.llm.client import ChatClient
-from factful.schemas import CritiqueReport, Draft
+from factful.schemas import CritiqueReport, Draft, Issue
 
 _CRITIC_INSTRUCTIONS = """
 You are a demanding reader-focused editor. Review the Markdown article and score
@@ -45,6 +45,40 @@ def reading_grade(text: str) -> float:
 def word_count(text: str) -> int:
     """Deterministic word count (matches the reading-grade tokenizer)."""
     return len(re.findall(r"[A-Za-z0-9]+", text))
+
+
+def enforce_length_feedback(
+    report: CritiqueReport,
+    *,
+    words: int,
+    min_words: int,
+    max_words: int,
+) -> CritiqueReport:
+    """Replace the LLM's length feedback with a deterministic one when out of bounds."""
+    if min_words <= words <= max_words:
+        return report
+    if words < min_words:
+        message = (
+            f"Deterministic word count {words} is below the minimum of {min_words}. "
+            f"The draft is too thin; it must be expanded before it can be published."
+        )
+        revision = (
+            f"Expand the article to at least {min_words} words: develop each grounded "
+            f"claim with more evidence, implications, and transitions, and deepen the "
+            f"argument without adding unsourced filler."
+        )
+    else:
+        message = (
+            f"Deterministic word count {words} exceeds the maximum of {max_words}. "
+            f"The draft is too long; it must be trimmed before it can be published."
+        )
+        revision = (
+            f"Cut at least {words - max_words} words: remove padding, merge redundant "
+            f"sentences, and tighten transitions."
+        )
+    issues = [issue for issue in report.issues if issue.type.lower() != "length"]
+    issues.append(Issue(type="Length", severity="high", message=message, revision=revision))
+    return report.model_copy(update={"issues": issues})
 
 
 def _syllables(word: str) -> int:
@@ -89,4 +123,9 @@ def critique(
     result = client.chat_completion(prompt=prompt, schema=CritiqueReport)
     if not isinstance(result, CritiqueReport):
         raise TypeError(f"expected CritiqueReport, got {type(result).__name__}")
-    return result
+    return enforce_length_feedback(
+        result,
+        words=words,
+        min_words=settings.writer.min_words,
+        max_words=settings.writer.max_words,
+    )
