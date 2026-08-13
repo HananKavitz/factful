@@ -180,14 +180,23 @@ def _write_outputs(out_dir: Path, result: PipelineResult) -> tuple[Path, Path, P
     return draft_path, report_path, json_path
 
 
-def _load_instructions(args: argparse.Namespace) -> str | None:
+def _load_instructions(args: argparse.Namespace, *, max_chars: int) -> str | None:
     inline: str | None = args.instructions
     file_path: Path | None = args.instructions_file
     if inline is not None and file_path is not None:
         raise SystemExit("--instructions and --instructions-file are mutually exclusive")
     if file_path is not None:
-        return file_path.read_text(encoding="utf-8")
-    return inline
+        try:
+            instructions: str | None = file_path.read_text(encoding="utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise SystemExit(f"instructions file {file_path} is not valid UTF-8: {exc}") from exc
+        except OSError as exc:
+            raise SystemExit(f"cannot read instructions file {file_path}: {exc}") from exc
+    else:
+        instructions = inline
+    if instructions is not None and len(instructions) > max_chars:
+        raise SystemExit(f"instructions too long ({len(instructions)} chars; max {max_chars})")
+    return instructions
 
 
 def _generate_command(args: argparse.Namespace) -> int:
@@ -221,7 +230,7 @@ def _generate_command(args: argparse.Namespace) -> int:
         clients=clients,
         profile=profile,
         max_sources=args.max_sources,
-        instructions=_load_instructions(args),
+        instructions=_load_instructions(args, max_chars=settings.writer.max_instructions_chars),
     )
 
     scores = ", ".join(f"{record.score:.0f}" for record in result.state.passes)

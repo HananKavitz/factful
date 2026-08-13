@@ -30,9 +30,10 @@ def _revision_length_guidance(min_words: int, target_words: int, max_words: int)
 
 
 def _instructions_section(instructions: str | None) -> str:
-    if not instructions:
+    normalized = instructions.strip() if instructions else ""
+    if not normalized:
         return ""
-    return f"Writer instructions:\n{instructions}\n\n"
+    return f"Writer instructions:\n{normalized}\n\n"
 
 
 _WRITER_INSTRUCTIONS = """

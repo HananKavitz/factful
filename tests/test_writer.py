@@ -70,6 +70,22 @@ def test_build_writer_prompt_omits_instructions_section_when_none() -> None:
     assert "Writer instructions:" not in prompt
 
 
+def test_build_writer_prompt_omits_instructions_section_when_empty() -> None:
+    prompt = build_writer_prompt(make_bundle(), profile(), instructions="")
+    assert "Writer instructions:" not in prompt
+
+
+def test_build_writer_prompt_omits_whitespace_only_instructions() -> None:
+    prompt = build_writer_prompt(make_bundle(), profile(), instructions=" \t \n ")
+    assert "Writer instructions:" not in prompt
+
+
+def test_build_writer_prompt_strips_instructions_whitespace() -> None:
+    prompt = build_writer_prompt(make_bundle(), profile(), instructions="  Keep jargon minimal.  ")
+    assert "Writer instructions:\nKeep jargon minimal.\n\n" in prompt
+    assert "  Keep jargon minimal.  " not in prompt
+
+
 def test_extract_referenced_claims_in_order_deduplicated() -> None:
     md = "Intro. [[c1]] and more [[c2]], then [[c1]] again."
     assert extract_referenced_claims(md) == ["c1", "c2"]

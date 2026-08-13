@@ -187,6 +187,70 @@ def test_generate_rejects_both_instructions_sources(
         )
 
 
+def test_generate_rejects_missing_instructions_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    set_keys(monkeypatch)
+    missing = tmp_path / "missing.md"
+    with pytest.raises(SystemExit, match="cannot read instructions file"):
+        main(["generate", "AI trends", "--instructions-file", str(missing)])
+
+
+def test_generate_rejects_directory_as_instructions_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    set_keys(monkeypatch)
+    directory = tmp_path / "instructions"
+    directory.mkdir()
+    with pytest.raises(SystemExit, match="cannot read instructions file"):
+        main(["generate", "AI trends", "--instructions-file", str(directory)])
+
+
+def test_generate_rejects_non_utf8_instructions_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    set_keys(monkeypatch)
+    bad = tmp_path / "instructions.md"
+    bad.write_bytes(b"\xff\xfe\x00invalid latin-1 content")
+    with pytest.raises(SystemExit, match="not valid UTF-8"):
+        main(["generate", "AI trends", "--instructions-file", str(bad)])
+
+
+def test_generate_reads_bom_stripped_instructions_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    set_keys(monkeypatch)
+    instructions_file = tmp_path / "instructions.md"
+    instructions_file.write_bytes("\ufeffKeep jargon minimal.".encode("utf-8"))
+    captured: dict = {}
+
+    def fake_run(topic, angle, *, instructions=None, **kwargs):
+        captured["instructions"] = instructions
+        return make_result()
+
+    monkeypatch.setattr(cli, "run_pipeline", fake_run)
+    out = tmp_path / "out"
+    rc = main(
+        ["generate", "AI trends", "--instructions-file", str(instructions_file), "--out", str(out)]
+    )
+    assert rc == 0
+    assert captured == {"instructions": "Keep jargon minimal."}
+
+
+def test_generate_rejects_oversized_instructions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    set_keys(monkeypatch)
+    long = "x" * 5000
+    with pytest.raises(SystemExit, match="instructions too long"):
+        main(["generate", "AI trends", "--instructions", long])
+
+
 def test_generate_verbose_emits_info_to_stderr(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
