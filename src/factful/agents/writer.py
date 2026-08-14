@@ -14,6 +14,17 @@ from factful.style.schema import StyleProfile
 _CLAIM_TAG = re.compile(r"\[\[(?P<claim_id>\w+)\]\]")
 
 
+def _paragraph_guidance(avg_paragraph_sentences: float) -> str:
+    target = round(avg_paragraph_sentences)
+    low = max(2, target - 2)
+    high = min(8, target + 3)
+    return (
+        f"Paragraphs — aim for about {target} sentences each, staying within "
+        f"{low}-{high} sentences. Vary for rhythm, but avoid paragraphs of two or "
+        f"fewer sentences."
+    )
+
+
 def _length_guidance(min_words: int, target_words: int, max_words: int) -> str:
     return (
         f"Length — aim for about {target_words} words, staying within "
@@ -105,6 +116,7 @@ def build_writer_prompt(
         f"{_instructions_section(instructions)}"
         f"{_WRITER_INSTRUCTIONS}\n\n"
         f"{_length_guidance(writer.min_words, writer.target_words, writer.max_words)}\n\n"
+        f"{_paragraph_guidance(profile.metrics.avg_paragraph_sentences)}\n\n"
         f"Output schema (return JSON matching this shape):\n"
         f"{json.dumps(Draft.model_json_schema(), indent=2)}"
     )
@@ -163,6 +175,7 @@ def build_revision_prompt(
         f"{_instructions_section(instructions)}"
         f"{_REVISION_INSTRUCTIONS}\n\n"
         f"{_revision_length_guidance(writer.min_words, writer.target_words, writer.max_words)}\n\n"
+        f"{_paragraph_guidance(profile.metrics.avg_paragraph_sentences)}\n\n"
         f"Output schema (return JSON matching this shape):\n"
         f"{json.dumps(Draft.model_json_schema(), indent=2)}"
     )

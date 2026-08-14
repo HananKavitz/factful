@@ -58,6 +58,14 @@ def test_build_writer_prompt_includes_word_bounds() -> None:
     assert "words" in prompt
 
 
+def test_build_writer_prompt_includes_paragraph_length_guidance() -> None:
+    prompt = build_writer_prompt(make_bundle(), profile())
+    assert "Paragraphs —" in prompt
+    assert "4 sentences" in prompt
+    assert "2-7 sentences" in prompt
+    assert "two or fewer" in prompt
+
+
 def test_build_writer_prompt_injects_today_date() -> None:
     prompt = build_writer_prompt(make_bundle(), profile(), today=date(2026, 8, 13))
     assert "Today is 2026-08-13" in prompt
@@ -185,6 +193,16 @@ def test_build_revision_prompt_includes_word_bounds() -> None:
     assert "1500" in prompt
     assert "2000" in prompt
     assert "2500" in prompt
+
+
+def test_build_revision_prompt_includes_paragraph_length_guidance() -> None:
+    draft = Draft(title="Chips", markdown="The market grew 12% [[c1]].")
+    prompt = build_revision_prompt(
+        draft, make_verdicts(), make_critique(), make_bundle(), profile()
+    )
+    assert "Paragraphs —" in prompt
+    assert "4 sentences" in prompt
+    assert "two or fewer" in prompt
 
 
 def test_build_revision_prompt_injects_today_date() -> None:
