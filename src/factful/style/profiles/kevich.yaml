@@ -42,7 +42,7 @@ extraction:
   story_beats:
   - opening context
   - thesis
-  - bold-name profile leads (Nasser, Saddam, Gaddafi)
+  - bold-name profile leads (prominent figures cited as cautionary tales)
   - Future Outlook
   - one-line clincher
   transitions:
@@ -55,29 +55,29 @@ extraction:
   rhetorical_devices:
   - label: rhetorical-question
     count: 9
-    excerpt: Why do the Arab Gulf states not fight? Why don't the proud Arabs fight
-      when they are attacked?
+    excerpt: Why do we not demand more? Why do we accept mediocrity when the opportunity
+      is clear?
   - label: question-burst
     count: 2
-    excerpt: Where is the Arab self-esteem and pride? Lost in the desert sands?
+    excerpt: Where is the collective ambition? Lost in the modest wins?
   direct_address:
   - label: dear-reader
     count: 3
-    excerpt: Dear reader, are you ready to die for Qatar?
+    excerpt: Dear reader, are you ready to face the uncomfortable truth?
   - label: hypothetical-you
     count: 2
     excerpt: What if the world found out it is all for show?
   characterization:
   - label: sarcastic-jab
     count: 5
-    excerpt: the fat Sheikhs, golden palaces, a joke even in the Arab world
+    excerpt: the glossy vanity projects, the self-congratulation, a joke even in our
+      own circles
   - label: hyperbolic-concrete
     count: 4
-    excerpt: the hundreds of billions of dollars the fat Sheikhs paid for American
-      protection
+    excerpt: the billions of dollars spent on borrowed credibility and rented infrastructure
   - label: wealth-rhetoric
     count: 2
-    excerpt: An owner of a 500M dollar super yacht is not going to unite the Arabs
+    excerpt: A flashy headline is not going to build a durable industry
   opinion_hedges:
   - I don't believe for a second
   - I think
@@ -85,9 +85,9 @@ extraction:
   - I would welcome it
   - As I stated
   comparatives:
-  - more than any other monarchy
-  - more of a threat to Israel than
-  - second-largest F-15 fleet
+  - more than any comparable small economy
+  - more of a threat to our ambitions than
+  - the second-largest pool of engineering talent
   - a drop in the ocean compared to
   modals:
   - probably
@@ -95,8 +95,8 @@ extraction:
   - might
   - could
   - what if
-  numeric_style: 'precise and round mixed: 400M dollar planes, hundreds of billions
-    of dollars, 3 US F-15s, 8 centuries'
+  numeric_style: 'precise and round mixed: $80M raises, hundreds of billions of dollars,
+    3 hubs, 8 centuries'
   cta_style: null
   signoff_style: null
 source_confidence: 1.0
