@@ -416,17 +416,17 @@ def test_gather_drops_claims_rejected_by_relevance_filter() -> None:
     assert bundle.citations[0].claim == "Chinese suppliers grew by 27%"
 
 
-def test_gather_raises_when_relevance_filter_keeps_nothing() -> None:
+def test_gather_falls_back_to_unfiltered_claims_when_relevance_filter_keeps_nothing() -> None:
     client = FakeClient(
         expansion=QueryExpansion(queries=["q1", "q2", "q3", "q4"]),
         mine=MINED,
         selection=RelevanceSelection(keep_claim_ids=[]),
     )
-    with pytest.raises(ValueError, match="relevance"):
-        gather(
-            TOPIC,
-            ANGLE,
-            client=client,
-            searcher=FakeSearcher(SEARCH_RESULTS),
-            fetcher=FakeFetcher(PAGES),
-        )
+    bundle = gather(
+        TOPIC,
+        ANGLE,
+        client=client,
+        searcher=FakeSearcher(SEARCH_RESULTS),
+        fetcher=FakeFetcher(PAGES),
+    )
+    assert [c.claim_id for c in bundle.citations] == ["c1", "c2", "c3", "c4"]

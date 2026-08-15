@@ -260,8 +260,5 @@ def gather(
         raise ValueError(f"gather produced no citations for topic {topic!r}")
     focused = filter_relevant(citations, topic, angle, client=client, today=today)
     if not focused:
-        raise ValueError(
-            f"relevance filter kept no claims for topic {topic!r}: could not build "
-            "a focused source bundle"
-        )
+        focused = citations
     return SourceBundle(topic=topic, angle=angle, citations=focused)
