@@ -16,12 +16,17 @@ class Dummy(BaseModel):
     name: str
 
 
-def _client(handler: Callable[[httpx.Request], httpx.Response]) -> OpenRouterClient:
+def _client(
+    handler: Callable[[httpx.Request], httpx.Response],
+    *,
+    sleep: Callable[[float], None] | None = None,
+) -> OpenRouterClient:
     return OpenRouterClient(
         model="m",
         api_key="k",
         base_url="https://openrouter.ai/api/v1",
         _client=httpx.Client(transport=httpx.MockTransport(handler)),
+        _sleep=sleep or (lambda _: None),
     )
 
 
@@ -146,6 +151,41 @@ def test_persistent_transport_error_raises_after_retries() -> None:
     with pytest.raises(httpx.ReadTimeout):
         _client(handler).chat_completion(prompt="p", schema=Dummy)
     assert len(calls) == 3
+
+
+def test_retries_back_off_with_exponential_delay() -> None:
+    calls: list[int] = []
+    delays: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        raise httpx.ConnectError("getaddrinfo failed", request=request)
+
+    with pytest.raises(httpx.ConnectError):
+        _client(handler, sleep=delays.append).chat_completion(prompt="p", schema=Dummy)
+    assert len(calls) == 3
+    assert len(delays) == 2
+    assert delays == [1.0, 2.0]
+
+
+def test_retries_back_off_from_configured_base_and_cap() -> None:
+    delays: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("getaddrinfo failed", request=request)
+
+    client = OpenRouterClient(
+        model="m",
+        api_key="k",
+        base_url="https://openrouter.ai/api/v1",
+        _client=httpx.Client(transport=httpx.MockTransport(handler)),
+        _sleep=delays.append,
+        backoff_base=2.0,
+        backoff_cap=3.0,
+    )
+    with pytest.raises(httpx.ConnectError):
+        client.chat_completion(prompt="p", schema=Dummy)
+    assert delays == [2.0, 3.0]
 
 
 def test_retries_when_model_echoes_schema() -> None:

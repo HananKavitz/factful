@@ -8,6 +8,7 @@ from factful.agents.writer import (
     build_writer_prompt,
     extract_referenced_claims,
     revise_article,
+    strip_claim_tags,
     write_article,
 )
 
@@ -29,5 +30,6 @@ __all__ = [
     "gather",
     "reading_grade",
     "revise_article",
+    "strip_claim_tags",
     "write_article",
 ]

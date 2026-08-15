@@ -4,7 +4,9 @@ from factful.agents.writer import (
     build_revision_prompt,
     build_writer_prompt,
     extract_referenced_claims,
+    normalize_paragraphs,
     revise_article,
+    strip_claim_tags,
     write_article,
 )
 from factful.schemas import (
@@ -16,7 +18,7 @@ from factful.schemas import (
     SourceBundle,
 )
 from factful.style.io import load_profile
-from factful.style.schema import StyleProfile
+from factful.style.schema import StyleExtraction, StyleMetrics, StyleProfile
 
 
 def make_bundle() -> SourceBundle:
@@ -41,6 +43,20 @@ def profile() -> StyleProfile:
     return load_profile("src/factful/style/profiles/kevich.yaml")
 
 
+def custom_profile(
+    *, avg_paragraph_sentences: float = 3.0, paragraph_length_dist: list[int] | None = None
+) -> StyleProfile:
+    return StyleProfile(
+        name="kevich",
+        metrics=StyleMetrics(
+            avg_sentence_words=16.0,
+            avg_paragraph_sentences=avg_paragraph_sentences,
+            paragraph_length_dist=paragraph_length_dist or [],
+        ),
+        extraction=StyleExtraction(voice="long-form, opinionated", tone="acerbic, skeptical"),
+    )
+
+
 def test_build_writer_prompt_embeds_bundle_and_profile() -> None:
     prompt = build_writer_prompt(make_bundle(), profile())
     assert "Semiconductors" in prompt
@@ -56,6 +72,13 @@ def test_build_writer_prompt_includes_word_bounds() -> None:
     assert "2000" in prompt
     assert "2500" in prompt
     assert "words" in prompt
+
+
+def test_build_writer_prompt_includes_structure_contract() -> None:
+    prompt = build_writer_prompt(make_bundle(), profile())
+    assert "State of play" in prompt
+    assert "Diagnosis" in prompt
+    assert "Recommended action plan" in prompt
 
 
 def test_build_writer_prompt_includes_paragraph_length_guidance() -> None:
@@ -118,6 +141,60 @@ def test_extract_referenced_claims_none() -> None:
     assert extract_referenced_claims("no tags here") == []
 
 
+def test_strip_claim_tags_removes_tag_before_period() -> None:
+    assert strip_claim_tags("The market grew 12% [[c1]].") == "The market grew 12%."
+
+
+def test_strip_claim_tags_removes_tag_mid_sentence() -> None:
+    assert (
+        strip_claim_tags("Revenue hit $4B [[c1]], while margins widened [[c2]].")
+        == "Revenue hit $4B, while margins widened."
+    )
+
+
+def test_strip_claim_tags_removes_all_repeated_tags() -> None:
+    assert strip_claim_tags("[[c1]] lead. Repeat the stat [[c1]] and cite again [[c17]].") == (
+        "lead. Repeat the stat and cite again."
+    )
+
+
+def test_strip_claim_tags_preserves_paragraph_structure() -> None:
+    md = "State of play [[c1]].\n\nDiagnosis, pure opinion."
+    assert strip_claim_tags(md) == "State of play.\n\nDiagnosis, pure opinion."
+
+
+def test_strip_claim_tags_noop_without_tags() -> None:
+    assert strip_claim_tags("Pure opinion, no numbers here.") == "Pure opinion, no numbers here."
+
+
+def test_normalize_paragraphs_leaves_existing_blank_line_paragraphs_untouched() -> None:
+    md = "# Title\n\nFirst paragraph here.\n\nSecond paragraph here.\n\n- a\n- b"
+    assert normalize_paragraphs(md, profile=profile()) == md
+
+
+def test_normalize_paragraphs_returns_unchanged_when_empty() -> None:
+    assert normalize_paragraphs("", profile=profile()) == ""
+
+
+def test_normalize_paragraphs_splits_collapsed_text_into_paragraphs() -> None:
+    md = "One sentence. Two sentence. Three sentence. Four sentence. Five sentence."
+    result = normalize_paragraphs(md, profile=custom_profile(avg_paragraph_sentences=3.0))
+    assert result == "One sentence. Two sentence. Three sentence.\n\nFour sentence. Five sentence."
+
+
+def test_normalize_paragraphs_does_not_break_decimal_numbers() -> None:
+    md = "Revenue hit $53.43 billion in 2025. It is set to expand at a 2.95% CAGR."
+    result = normalize_paragraphs(md, profile=custom_profile(avg_paragraph_sentences=2.0))
+    assert "$53.43 billion" in result
+    assert "2.95% CAGR" in result
+
+
+def test_normalize_paragraphs_paces_to_profile_distribution() -> None:
+    md = "S1. S2. S3. S4. S5. S6. S7. S8."
+    result = normalize_paragraphs(md, profile=custom_profile(paragraph_length_dist=[2, 3]))
+    assert result.split("\n\n") == ["S1. S2.", "S3. S4. S5.", "S6. S7.", "S8."]
+
+
 class FakeClient:
     def __init__(self, draft: Draft) -> None:
         self.draft = draft
@@ -142,6 +219,27 @@ def test_write_article_forwards_instructions() -> None:
     client = FakeClient(draft)
     write_article(make_bundle(), profile(), client=client, instructions="End with a CTA.")
     assert "End with a CTA." in client.calls[0][0]
+
+
+def test_write_article_normalizes_collapsed_markdown() -> None:
+    collapsed = Draft(title="Chips", markdown="Market grew. It grew again. It kept growing.")
+    client = FakeClient(collapsed)
+    result = write_article(make_bundle(), profile(), client=client)
+    assert "\n\n" in result.markdown
+
+
+def test_revise_article_normalizes_collapsed_markdown() -> None:
+    collapsed = Draft(title="Chips", markdown="Fixed the lead. Fixed the middle. Fixed the end.")
+    client = FakeClient(collapsed)
+    result = revise_article(
+        Draft(title="Chips", markdown="Old."),
+        make_verdicts(),
+        make_critique(),
+        make_bundle(),
+        profile(),
+        client=client,
+    )
+    assert "\n\n" in result.markdown
 
 
 def make_verdicts() -> list[FactVerdict]:
@@ -183,6 +281,15 @@ def test_build_revision_prompt_includes_draft_feedback_and_bundle() -> None:
     assert "sharper statistic" in prompt
     assert "Revenue hit $4B in 2024" in prompt
     assert "kevich" in prompt
+
+
+def test_build_revision_prompt_allows_restructuring() -> None:
+    draft = Draft(title="Chips", markdown="The market grew 12% [[c1]].")
+    prompt = build_revision_prompt(
+        draft, make_verdicts(), make_critique(), make_bundle(), profile()
+    )
+    assert "restructure" in prompt
+    assert "Keep the voice, structure" not in prompt
 
 
 def test_build_revision_prompt_includes_word_bounds() -> None:

@@ -29,6 +29,6 @@ llm:
   models:
     style: google/gemini-3-flash-preview
     gather: openai/gpt-4o-mini
-    writer: google/gemini-3-flash-preview
+    writer: deepseek/deepseek-v4-pro
     factcheck: openai/gpt-4o-mini
     critic: openai/gpt-4o-mini

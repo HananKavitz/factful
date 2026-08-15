@@ -5,6 +5,7 @@ import pytest
 
 from factful.agents.fetch import Page
 from factful.agents.search import SearchResult
+from factful.agents.writer import normalize_paragraphs
 from factful.config import Settings
 from factful.pipeline import (
     ConvergeResult,
@@ -268,7 +269,7 @@ def test_run_pipeline_single_pass_publishes() -> None:
     assert result.reason == "hard gate passed"
     assert result.state.pass_ == 1
     assert len(result.state.passes) == 1
-    assert result.state.draft == good.markdown
+    assert result.state.draft == normalize_paragraphs(good.markdown, profile=profile())
     assert result.state.score == 90
     assert len(result.state.verdicts) == 1
     assert result.unresolved == []
@@ -331,7 +332,7 @@ def test_run_pipeline_patches_until_hard_gate() -> None:
     assert result.decision == "publish"
     assert result.state.pass_ == 2
     assert len(result.state.passes) == 2
-    assert result.state.draft == good.markdown
+    assert result.state.draft == normalize_paragraphs(good.markdown, profile=profile())
     draft_calls = [prompt for prompt, schema in client.calls if schema is Draft]
     assert len(draft_calls) == 2
     assert "Current draft:" in draft_calls[1]
@@ -414,7 +415,8 @@ def test_run_pipeline_keeps_best_draft_on_oscillation() -> None:
     )
     assert result.decision == "stop"
     assert "regressed" in result.reason
-    assert result.state.draft == long_draft("best draft [[c1]]").markdown
+    best = long_draft("best draft [[c1]]")
+    assert result.state.draft == normalize_paragraphs(best.markdown, profile=profile())
 
 
 def test_run_pipeline_reports_unresolved_critical_claims() -> None:
@@ -471,7 +473,7 @@ def test_run_pipeline_refuses_to_publish_below_floor_and_keeps_patching() -> Non
     assert result.decision == "publish"
     assert result.state.pass_ == 2
     assert len(result.state.passes) == 2
-    assert result.state.draft == good.markdown
+    assert result.state.draft == normalize_paragraphs(good.markdown, profile=profile())
 
 
 def test_run_pipeline_stops_with_best_draft_when_floor_never_met() -> None:

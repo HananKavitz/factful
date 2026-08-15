@@ -12,6 +12,39 @@ from factful.schemas import CritiqueReport, Draft, FactVerdict, SourceBundle
 from factful.style.schema import StyleProfile
 
 _CLAIM_TAG = re.compile(r"\[\[(?P<claim_id>\w+)\]\]")
+_SENTENCE_RE = re.compile(r"(?:[^.!?]|\d\.\d)+[.!?]+(?=\s|\Z)")
+_BLANK_LINE_RE = re.compile(r"\n\s*\n")
+
+
+def _split_sentences(text: str) -> list[str]:
+    return [s.strip() for s in _SENTENCE_RE.findall(text.strip()) if s.strip()]
+
+
+def normalize_paragraphs(markdown: str, *, profile: StyleProfile) -> str:
+    """Guarantee blank-line paragraph separators in a draft.
+
+    Some writer models collapse the Markdown body into a single line with no
+    newlines. When the model already separated paragraphs with blank lines,
+    leave the draft untouched; otherwise rebuild paragraphs from sentences,
+    pacing them to the profile's observed paragraph-length distribution.
+    """
+    if _BLANK_LINE_RE.search(markdown):
+        return markdown
+    sentences = _split_sentences(markdown)
+    if not sentences:
+        return markdown
+    lengths = [length for length in profile.metrics.paragraph_length_dist if length > 0]
+    if not lengths:
+        lengths = [max(2, round(profile.metrics.avg_paragraph_sentences))]
+    paragraphs: list[str] = []
+    index = 0
+    cycle = 0
+    while index < len(sentences):
+        size = lengths[cycle % len(lengths)]
+        paragraphs.append(" ".join(sentences[index : index + size]))
+        index += size
+        cycle += 1
+    return "\n\n".join(paragraphs)
 
 
 def _paragraph_guidance(avg_paragraph_sentences: float) -> str:
@@ -66,6 +99,22 @@ Rule — factual grounding:
   present it with its actual year (e.g. "as of 2023") rather than framing it as
   today's number.
 
+Rule — structure (facts first, plan last):
+- Organize the article as three movements: (1) State of play — present ALL
+  grounded claims with their [[claim_id]] tags together as one coherent block,
+  grouped and sequenced for readability; (2) Diagnosis — interpret what the facts
+  mean, in pure opinion, framing, and rhetoric; add no new grounded claims here;
+  (3) Recommended action plan — the author's proposals, explicitly framed as
+  recommendations and projections rather than sourced facts, placed at the end
+  directly before the closing line.
+- State each grounded claim once, in the state-of-play block. Do not sprinkle
+  statistics through the diagnosis or plan sections.
+- Pure-opinion and framing sentences must never carry a [[claim_id]] tag.
+- The final paragraph, the closer, must be pure rhetoric — never a number or a
+  claim tag.
+- Match the profile's own section style (headings, bold leads, or flowing
+  paragraphs); the three movements must not read as boilerplate headings.
+
 Compose the article now as Markdown that fits the supplied output schema.
 """
 
@@ -76,8 +125,9 @@ edits only — do not rewrite the article from scratch.
 Rules:
 - Fix every issue listed by the critic and every fact-check revision suggestion.
 - Do not alter sentences that were not flagged, except where a fix forces it.
-- Keep the voice, structure, and style of the current draft; it already matches
-  the style profile.
+- Keep the voice and style of the current draft; it already matches the style
+  profile. You may restructure the article — reorder movements, move claims into
+  the state-of-play block — when the critic flags a structure issue.
 - Keep the [[claim_id]] tags exactly as they are. Never introduce a claim or
   number that is not in the source bundle.
 - Do not drop sources unless the fact-checker flags a claim as unsupported and
@@ -206,7 +256,9 @@ def revise_article(
     result = client.chat_completion(prompt=prompt, schema=Draft)
     if not isinstance(result, Draft):
         raise TypeError(f"expected Draft, got {type(result).__name__}")
-    return result
+    return result.model_copy(
+        update={"markdown": normalize_paragraphs(result.markdown, profile=profile)}
+    )
 
 
 def extract_referenced_claims(markdown: str) -> list[str]:
@@ -215,6 +267,13 @@ def extract_referenced_claims(markdown: str) -> list[str]:
         if match not in claims:
             claims.append(match)
     return claims
+
+
+def strip_claim_tags(markdown: str) -> str:
+    text = _CLAIM_TAG.sub("", markdown)
+    text = re.sub(r" {2,}", " ", text)
+    text = re.sub(r" ([.,!?;:])", r"\1", text)
+    return text.strip()
 
 
 def write_article(
@@ -232,4 +291,6 @@ def write_article(
     result = client.chat_completion(prompt=prompt, schema=Draft)
     if not isinstance(result, Draft):
         raise TypeError(f"expected Draft, got {type(result).__name__}")
-    return result
+    return result.model_copy(
+        update={"markdown": normalize_paragraphs(result.markdown, profile=profile)}
+    )

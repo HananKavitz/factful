@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import time
+from collections.abc import Callable
 from typing import Protocol
 
 import httpx
@@ -48,14 +50,29 @@ class OpenRouterClient:
         base_url: str = OPENROUTER_URL,
         timeout: float = 180.0,
         max_retries: int = 2,
+        backoff_base: float = 1.0,
+        backoff_cap: float = 30.0,
         _client: httpx.Client | None = None,
+        _sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._model = model
         self._api_key = api_key
         self._base_url = _chat_completions_endpoint(base_url)
         self._timeout = timeout
         self._max_retries = max_retries
+        self._backoff_base = backoff_base
+        self._backoff_cap = backoff_cap
         self._client = _client
+        self._sleep = _sleep
+
+    def _backoff_delay(self, attempt: int) -> float:
+        raw: float = self._backoff_base * float(2**attempt)
+        return min(raw, self._backoff_cap)
+
+    def _wait_before_retry(self, attempt: int) -> None:
+        if attempt >= self._max_retries:
+            return
+        self._sleep(self._backoff_delay(attempt))
 
     def chat_completion(self, *, prompt: str, schema: type[BaseModel]) -> BaseModel:
         client = self._client or httpx.Client(timeout=self._timeout)
@@ -89,6 +106,7 @@ class OpenRouterClient:
                     _retry_suffix(attempt, attempts),
                 )
                 if attempt < attempts - 1:
+                    self._wait_before_retry(attempt)
                     continue
                 raise
             except httpx.HTTPError as exc:
@@ -98,6 +116,7 @@ class OpenRouterClient:
                     kind = "failed"
                 logger.info("LLM request %s%s", kind, _retry_suffix(attempt, attempts))
                 if attempt < attempts - 1:
+                    self._wait_before_retry(attempt)
                     continue
                 raise
             try:
@@ -116,6 +135,7 @@ class OpenRouterClient:
                     _retry_suffix(attempt, attempts),
                 )
                 if attempt < attempts - 1:
+                    self._wait_before_retry(attempt)
                     continue
                 raise ValueError(
                     f"LLM returned an unusable response (status {response.status_code}): "
@@ -131,6 +151,7 @@ class OpenRouterClient:
                     raw[:200],
                 )
                 if attempt < attempts - 1:
+                    self._wait_before_retry(attempt)
                     continue
                 raise
         raise RuntimeError("unreachable")

@@ -2,6 +2,7 @@ from factful.agents.critic import (
     build_critic_prompt,
     critique,
     enforce_length_feedback,
+    enforce_structure_feedback,
     reading_grade,
     word_count,
 )
@@ -52,6 +53,150 @@ def test_build_critic_prompt_embeds_word_count_and_bounds() -> None:
     assert "word count: 5 words" in prompt
     assert "900" in prompt
     assert "1800" in prompt
+
+
+def test_build_critic_prompt_includes_macro_arc_check() -> None:
+    draft = Draft(title="Chips", markdown="Market grew 12% [[c1]].")
+    prompt = build_critic_prompt(
+        draft,
+        reading_grade(draft.markdown),
+        words=word_count(draft.markdown),
+        min_words=900,
+        max_words=1800,
+    )
+    assert "Macro-structure" in prompt
+    assert "state-of-play" in prompt
+
+
+def _facts_first_markdown() -> str:
+    return "\n\n".join(
+        [
+            "Revenue hit $4B in 2024 [[c1]].",
+            "The sector added 3,000 jobs [[c2]].",
+            "Margins widened to 12% [[c3]].",
+            "The analyst consensus sees no let-up.",
+            "Our position remains strong.",
+            "What will you do tomorrow?",
+        ]
+    )
+
+
+def test_structure_gate_clean_facts_first_draft_unchanged() -> None:
+    report = CritiqueReport(score=88, issues=[], verdict="pass")
+    assert enforce_structure_feedback(report, markdown=_facts_first_markdown()) == report
+
+
+def test_structure_gate_skips_short_drafts() -> None:
+    report = CritiqueReport(score=80, issues=[], verdict="rework")
+    markdown = "\n\n".join(["Market grew 12% [[c1]].", "Then it slowed.", "Now it is steady."])
+    assert enforce_structure_feedback(report, markdown=markdown) == report
+
+
+def test_structure_gate_flags_claim_in_clincher() -> None:
+    report = CritiqueReport(score=88, issues=[], verdict="pass")
+    markdown = "\n\n".join(
+        [
+            "Intro with the market growing 12% [[c1]].",
+            "Revenue hit $4B in 2024 [[c2]].",
+            "The sector added 3,000 jobs [[c3]].",
+            "Margins expanded across the board.",
+            "Competitors are catching up.",
+            "The analyst consensus sees no let-up.",
+            "Our position remains strong.",
+            "The clock is ticking [[c1]].",
+        ]
+    )
+    fixed = enforce_structure_feedback(report, markdown=markdown)
+    structure = [i for i in fixed.issues if i.type == "Structure"]
+    assert len(structure) == 1
+    assert "closer" in structure[0].message
+    assert structure[0].severity == "high"
+
+
+def test_structure_gate_flags_late_facts() -> None:
+    report = CritiqueReport(score=88, issues=[], verdict="pass")
+    markdown = "\n\n".join(
+        [
+            "Revenue hit $4B in 2024 [[c1]].",
+            "Margins widened to 12% [[c2]].",
+            "The analyst consensus sees no let-up.",
+            "Our position remains strong.",
+            "Competitors are catching up.",
+            "Nobody doubts our edge.",
+            "Yet headcount reached 5,000 last year [[c3]].",
+            "This is our conclusion.",
+        ]
+    )
+    fixed = enforce_structure_feedback(report, markdown=markdown)
+    structure = [i for i in fixed.issues if i.type == "Structure"]
+    assert len(structure) == 1
+    assert "late" in structure[0].message
+    assert structure[0].severity == "high"
+
+
+def test_structure_gate_flags_opinion_before_facts() -> None:
+    report = CritiqueReport(score=88, issues=[], verdict="pass")
+    markdown = "\n\n".join(
+        [
+            "We wander through the introduction.",
+            "We speculate without evidence.",
+            "We make grand claims of our own.",
+            "Revenue hit $4B in 2024 [[c1]].",
+            "The sector added 3,000 jobs [[c2]].",
+            "Margins widened to 12% [[c3]].",
+            "Headcount reached 5,000 [[c4]].",
+            "This is our conclusion.",
+        ]
+    )
+    fixed = enforce_structure_feedback(report, markdown=markdown)
+    structure = [i for i in fixed.issues if i.type == "Structure"]
+    assert len(structure) == 1
+    assert "opinion" in structure[0].message
+    assert structure[0].severity == "moderate"
+
+
+def test_structure_gate_replaces_llm_structure_issues() -> None:
+    report = CritiqueReport(
+        score=80,
+        verdict="rework",
+        issues=[
+            Issue(type="Structure", severity="moderate", message="scattered", revision="merge")
+        ],
+    )
+    markdown = "\n\n".join(
+        [
+            "Intro with the market growing 12% [[c1]].",
+            "Revenue hit $4B in 2024 [[c2]].",
+            "The sector added 3,000 jobs [[c3]].",
+            "Margins expanded across the board.",
+            "Competitors are catching up.",
+            "The analyst consensus sees no let-up.",
+            "Our position remains strong.",
+            "The clock is ticking [[c1]].",
+        ]
+    )
+    fixed = enforce_structure_feedback(report, markdown=markdown)
+    structure = [i for i in fixed.issues if i.type == "Structure"]
+    assert len(structure) == 1
+    assert all("scattered" not in (i.message or "") for i in fixed.issues)
+    assert "closer" in structure[0].message
+
+
+def test_critique_injects_structure_feedback() -> None:
+    report = CritiqueReport(score=88, issues=[], verdict="pass")
+    client = FakeClient(report)
+    markdown = "\n\n".join(
+        [
+            "Revenue hit $4B in 2024 [[c1]].",
+            "The sector added 3,000 jobs [[c2]].",
+            "Margins widened to 12% [[c3]].",
+            "The analyst consensus sees no let-up.",
+            "Our position remains strong.",
+            "The clock is ticking [[c1]].",
+        ]
+    )
+    result = critique(Draft(title="Chips", markdown=markdown), client=client)
+    assert any(i.type == "Structure" for i in result.issues)
 
 
 class FakeClient:

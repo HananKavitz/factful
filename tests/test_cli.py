@@ -100,9 +100,11 @@ def test_generate_writes_artifacts(
     draft = out / "ai-trends" / "draft.md"
     report_md = out / "ai-trends" / "report.md"
     report_json = out / "ai-trends" / "report.json"
-    assert draft.read_text(encoding="utf-8") == "The market grew 12% [[c1]]."
+    assert draft.read_text(encoding="utf-8") == "The market grew 12%."
     assert "hard gate passed" in report_md.read_text(encoding="utf-8")
+    assert "The market grew 12% [[c1]]." in report_md.read_text(encoding="utf-8")
     assert '"decision": "publish"' in report_json.read_text(encoding="utf-8")
+    assert "[[c1]]" in report_json.read_text(encoding="utf-8")
 
 
 def test_generate_passes_angle_and_max_sources(

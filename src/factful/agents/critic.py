@@ -9,6 +9,8 @@ from factful.config import Settings
 from factful.llm.client import ChatClient
 from factful.schemas import CritiqueReport, Draft, Issue
 
+_CLAIM_TAG_RE = re.compile(r"\[\[(?P<claim_id>\w+)\]\]")
+
 _CRITIC_INSTRUCTIONS = """
 You are a demanding reader-focused editor. Review the Markdown article and score
 how well it would hold a Substack reader.
@@ -24,6 +26,11 @@ Evaluate:
   transitions). Note without heavy penalty when a draft falls well below the floor
   and feels thin.
 - Argument structure: every claim follows claim -> evidence -> implication.
+- Macro-structure: grounded facts are presented first as a coherent state-of-play
+  block; interpretation and opinion follow; any recommended action plan comes
+  last, before the closer. Penalize scattered facts (claims interleaved with
+  opinion throughout), late-arriving statistics, and a closer that carries a
+  claim tag. For each structure weakness list a concrete restructure revision.
 - Calls to action and sign-off.
 
 Score 0-100. For each material weakness, list an issue with a concrete revision
@@ -81,6 +88,75 @@ def enforce_length_feedback(
     return report.model_copy(update={"issues": issues})
 
 
+def enforce_structure_feedback(report: CritiqueReport, *, markdown: str) -> CritiqueReport:
+    """Replace the LLM's structure feedback with a deterministic one when the
+    draft's claim placement violates the facts-first, plan-last contract."""
+    paragraphs = [p for p in re.split(r"\n\s*\n", markdown.strip()) if p.strip()]
+    count = len(paragraphs)
+    if count < 4:
+        return report
+    claim_paragraphs = [i for i, p in enumerate(paragraphs) if _CLAIM_TAG_RE.search(p)]
+    if not claim_paragraphs:
+        return report
+
+    issues: list[Issue] = []
+    if _CLAIM_TAG_RE.search(paragraphs[-1]):
+        issues.append(
+            Issue(
+                type="Structure",
+                severity="high",
+                message=(
+                    "The final paragraph (the closer) carries a grounded claim. "
+                    "The closing line must be pure rhetoric, not a statistic."
+                ),
+                revision=(
+                    "Move that statistic into the state-of-play block near the start "
+                    "of the article and close with a rhetorical line carrying no claim tag."
+                ),
+            )
+        )
+
+    quarter_start = int(0.75 * count)
+    late = [i for i in claim_paragraphs if i >= quarter_start]
+    if late and len(late) / len(claim_paragraphs) > 0.25:
+        issues.append(
+            Issue(
+                type="Structure",
+                severity="high",
+                message=(
+                    "Grounded facts appear late in the article, scattered through "
+                    "the argument, instead of leading it."
+                ),
+                revision=(
+                    "Consolidate every grounded claim into a single state-of-play "
+                    "block at the start; keep the diagnosis and action plan free of "
+                    "new statistics."
+                ),
+            )
+        )
+
+    if claim_paragraphs[0] > int(0.3 * count):
+        issues.append(
+            Issue(
+                type="Structure",
+                severity="moderate",
+                message=(
+                    "The article opens with several paragraphs of opinion before "
+                    "presenting any grounded fact."
+                ),
+                revision=(
+                    "Lead with the facts: open the state-of-play block early so "
+                    "readers see the evidence before the argument."
+                ),
+            )
+        )
+
+    if not issues:
+        return report
+    kept = [issue for issue in report.issues if issue.type.lower() != "structure"]
+    return report.model_copy(update={"issues": kept + issues})
+
+
 def _syllables(word: str) -> int:
     count = len(re.findall(r"[aeiouy]+", word.lower()))
     return count
@@ -123,8 +199,9 @@ def critique(
     result = client.chat_completion(prompt=prompt, schema=CritiqueReport)
     if not isinstance(result, CritiqueReport):
         raise TypeError(f"expected CritiqueReport, got {type(result).__name__}")
+    report = enforce_structure_feedback(result, markdown=draft.markdown)
     return enforce_length_feedback(
-        result,
+        report,
         words=words,
         min_words=settings.writer.min_words,
         max_words=settings.writer.max_words,

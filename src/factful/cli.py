@@ -16,6 +16,7 @@ from yaml import safe_dump
 from factful import __version__
 from factful.agents.fetch import HttpxFetcher
 from factful.agents.search import TavilySearcher
+from factful.agents.writer import strip_claim_tags
 from factful.config import load_settings
 from factful.llm import ModelRouter, OpenRouterClient
 from factful.pipeline import PipelineClients, PipelineResult, run_pipeline
@@ -174,7 +175,7 @@ def _write_outputs(out_dir: Path, result: PipelineResult) -> tuple[Path, Path, P
     draft_path = slug_dir / "draft.md"
     report_path = slug_dir / "report.md"
     json_path = slug_dir / "report.json"
-    draft_path.write_text(result.state.draft or "", encoding="utf-8")
+    draft_path.write_text(strip_claim_tags(result.state.draft or ""), encoding="utf-8")
     report_path.write_text(_render_report(result), encoding="utf-8")
     json_path.write_text(json.dumps(_serialize_report(result), indent=2), encoding="utf-8")
     return draft_path, report_path, json_path
