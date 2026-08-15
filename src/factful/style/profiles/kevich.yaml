@@ -68,10 +68,6 @@ extraction:
     count: 2
     excerpt: What if the world found out it is all for show?
   characterization:
-  - label: sarcastic-jab
-    count: 5
-    excerpt: the glossy vanity projects, the self-congratulation, a joke even in our
-      own circles
   - label: hyperbolic-concrete
     count: 4
     excerpt: the billions of dollars spent on borrowed credibility and rented infrastructure
