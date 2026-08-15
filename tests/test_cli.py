@@ -97,14 +97,30 @@ def test_generate_writes_artifacts(
     rc = main(["generate", "AI trends", "--out", str(out)])
     assert rc == 0
     assert "AI trends" in capsys.readouterr().out
-    draft = out / "ai-trends" / "draft.md"
-    report_md = out / "ai-trends" / "report.md"
-    report_json = out / "ai-trends" / "report.json"
+    run_dirs = [p for p in out.iterdir() if p.is_dir()]
+    assert len(run_dirs) == 1
+    run_dir = run_dirs[0]
+    assert re.fullmatch(r"ai-trends-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}", run_dir.name)
+    draft = run_dir / "draft.md"
+    report_md = run_dir / "report.md"
+    report_json = run_dir / "report.json"
     assert draft.read_text(encoding="utf-8") == "The market grew 12%."
     assert "hard gate passed" in report_md.read_text(encoding="utf-8")
     assert "The market grew 12% [[c1]]." in report_md.read_text(encoding="utf-8")
     assert '"decision": "publish"' in report_json.read_text(encoding="utf-8")
     assert "[[c1]]" in report_json.read_text(encoding="utf-8")
+
+
+def test_write_outputs_uses_given_timestamp(tmp_path) -> None:
+    from datetime import UTC, datetime
+
+    result = make_result()
+    out = tmp_path / "out"
+    now = datetime(2026, 8, 15, 14, 30, 0, tzinfo=UTC)
+    draft, report_md, report_json = cli._write_outputs(out, result, now=now)
+    assert draft.parent.name == "ai-trends-2026-08-15_14-30"
+    assert report_md.parent == draft.parent
+    assert report_json.parent == draft.parent
 
 
 def test_generate_passes_angle_and_max_sources(

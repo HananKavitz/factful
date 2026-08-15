@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -169,8 +170,11 @@ def _serialize_report(result: PipelineResult) -> dict[str, Any]:
     }
 
 
-def _write_outputs(out_dir: Path, result: PipelineResult) -> tuple[Path, Path, Path]:
-    slug_dir = out_dir / _slugify(result.state.topic)
+def _write_outputs(
+    out_dir: Path, result: PipelineResult, *, now: datetime | None = None
+) -> tuple[Path, Path, Path]:
+    generated_at = now or datetime.now().astimezone()
+    slug_dir = out_dir / f"{_slugify(result.state.topic)}-{generated_at:%Y-%m-%d_%H-%M}"
     slug_dir.mkdir(parents=True, exist_ok=True)
     draft_path = slug_dir / "draft.md"
     report_path = slug_dir / "report.md"
