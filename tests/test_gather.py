@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import date
 
 import pytest
@@ -10,14 +11,22 @@ from factful.agents.gather import (
     MAX_MINE_TEXT_CHARACTERS,
     build_expand_prompt,
     build_mine_prompt,
+    build_relevance_prompt,
     dedupe_by_url,
+    filter_relevant,
     find_passage_para,
     gather,
     truncate_text,
 )
 from factful.agents.search import SearchResult
 from factful.config import Settings
-from factful.schemas import ClaimMineOutput, MinedClaim, QueryExpansion, SourceBundle
+from factful.schemas import (
+    ClaimMineOutput,
+    MinedClaim,
+    QueryExpansion,
+    RelevanceSelection,
+    SourceBundle,
+)
 
 TOPIC = "global semiconductor market"
 ANGLE = "geopolitical supply chains"
@@ -61,10 +70,19 @@ MINED = ClaimMineOutput(
 
 
 class FakeClient:
-    def __init__(self, expansion: QueryExpansion, mine: ClaimMineOutput) -> None:
+    def __init__(
+        self,
+        expansion: QueryExpansion,
+        mine: ClaimMineOutput,
+        selection: RelevanceSelection | None = None,
+    ) -> None:
         self.expansion = expansion
         self.mine = mine
+        self.selection = selection
         self.calls: list[tuple[str, type[BaseModel]]] = []
+
+    def _prompt_claim_ids(self, prompt: str) -> list[str]:
+        return re.findall(r"claim_id=(\w+)", prompt)
 
     def chat_completion(self, *, prompt: str, schema: type[BaseModel]) -> BaseModel:
         self.calls.append((prompt, schema))
@@ -72,6 +90,10 @@ class FakeClient:
             return self.expansion
         if schema is ClaimMineOutput:
             return self.mine
+        if schema is RelevanceSelection:
+            if self.selection is not None:
+                return self.selection
+            return RelevanceSelection(keep_claim_ids=self._prompt_claim_ids(prompt))
         raise AssertionError(f"unexpected schema {schema}")
 
 
@@ -317,4 +339,94 @@ def test_gather_skips_empty_text_page() -> None:
             client=client,
             searcher=FakeSearcher([SearchResult(url="https://reports.example/market", title="E")]),
             fetcher=fetcher,
+        )
+
+
+def test_relevance_prompt_reflects_topic_angle_and_claims() -> None:
+    bundle, _, _ = run_gather()
+    prompt = build_relevance_prompt(TOPIC, ANGLE, bundle.citations)
+    assert TOPIC in prompt
+    assert ANGLE in prompt
+    assert "claim_id=c1" in prompt
+    assert "Revenue hit $4B in 2024" in prompt
+    assert "Chinese suppliers grew by 27%" in prompt
+
+
+def test_relevance_prompt_injects_today_date() -> None:
+    bundle, _, _ = run_gather()
+    prompt = build_relevance_prompt(TOPIC, ANGLE, bundle.citations, today=date(2026, 8, 13))
+    assert "Today is 2026-08-13" in prompt
+
+
+def test_relevance_prompt_lists_each_candidate_once_with_metadata() -> None:
+    bundle, _, _ = run_gather()
+    prompt = build_relevance_prompt(TOPIC, ANGLE, bundle.citations)
+    assert prompt.count("claim_id=") == 4
+    assert "key_stat=$4B" in prompt
+    assert "publisher=reports.example" in prompt
+
+
+def test_filter_relevant_keeps_only_selected_claim_ids() -> None:
+    bundle, _, _ = run_gather()
+    relevance = RelevanceSelection(keep_claim_ids=["c2", "c4"])
+    client = FakeClient(
+        expansion=QueryExpansion(queries=["q1", "q2", "q3", "q4"]),
+        mine=MINED,
+        selection=relevance,
+    )
+    kept = filter_relevant(bundle.citations, TOPIC, ANGLE, client=client)
+    assert [c.claim_id for c in kept] == ["c2", "c4"]
+
+
+def test_filter_relevant_preserves_original_claim_order() -> None:
+    bundle, _, _ = run_gather()
+    client = FakeClient(
+        expansion=QueryExpansion(queries=["q1", "q2", "q3", "q4"]),
+        mine=MINED,
+        selection=RelevanceSelection(keep_claim_ids=["c4", "c1"]),
+    )
+    kept = filter_relevant(bundle.citations, TOPIC, ANGLE, client=client)
+    assert [c.claim_id for c in kept] == ["c1", "c4"]
+
+
+def test_filter_relevant_returns_empty_input_without_calling_llm() -> None:
+    client = FakeClient(
+        expansion=QueryExpansion(queries=["q1", "q2", "q3", "q4"]),
+        mine=MINED,
+        selection=RelevanceSelection(keep_claim_ids=["c1"]),
+    )
+    assert filter_relevant([], TOPIC, ANGLE, client=client) == []
+    assert client.calls == []
+
+
+def test_gather_drops_claims_rejected_by_relevance_filter() -> None:
+    client = FakeClient(
+        expansion=QueryExpansion(queries=["q1", "q2", "q3", "q4"]),
+        mine=MINED,
+        selection=RelevanceSelection(keep_claim_ids=["c2", "c4"]),
+    )
+    bundle = gather(
+        TOPIC,
+        ANGLE,
+        client=client,
+        searcher=FakeSearcher(SEARCH_RESULTS),
+        fetcher=FakeFetcher(PAGES),
+    )
+    assert [c.claim_id for c in bundle.citations] == ["c2", "c4"]
+    assert bundle.citations[0].claim == "Chinese suppliers grew by 27%"
+
+
+def test_gather_raises_when_relevance_filter_keeps_nothing() -> None:
+    client = FakeClient(
+        expansion=QueryExpansion(queries=["q1", "q2", "q3", "q4"]),
+        mine=MINED,
+        selection=RelevanceSelection(keep_claim_ids=[]),
+    )
+    with pytest.raises(ValueError, match="relevance"):
+        gather(
+            TOPIC,
+            ANGLE,
+            client=client,
+            searcher=FakeSearcher(SEARCH_RESULTS),
+            fetcher=FakeFetcher(PAGES),
         )

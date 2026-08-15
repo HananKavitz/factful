@@ -37,6 +37,10 @@ class ClaimMineOutput(BaseModel):
     claims: list[MinedClaim] = Field(default_factory=list)
 
 
+class RelevanceSelection(BaseModel):
+    keep_claim_ids: list[str] = Field(default_factory=list)
+
+
 class AttributionVerdict(BaseModel):
     status: Literal["supported", "unsupported"]
     confidence: float = Field(ge=0.0, le=1.0)

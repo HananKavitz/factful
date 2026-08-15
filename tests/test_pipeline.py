@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import UTC, date, datetime
 
 import pytest
@@ -21,6 +22,7 @@ from factful.schemas import (
     Draft,
     MinedClaim,
     QueryExpansion,
+    RelevanceSelection,
 )
 from factful.state import PassRecord
 from factful.style.io import load_profile
@@ -70,6 +72,8 @@ class FakeClient:
                 quote_snippet="Revenue hit $4B in 2024.",
             )
             return ClaimMineOutput(claims=[claim])
+        if schema is RelevanceSelection:
+            return RelevanceSelection(keep_claim_ids=re.findall(r"claim_id=(\w+)", prompt))
         if schema is Draft:
             return self.drafts.pop(0)
         if schema is AttributionVerdict:

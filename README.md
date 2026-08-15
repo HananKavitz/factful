@@ -32,7 +32,7 @@ Four specialized agents, each a pure task function with a structured output sche
 
 | Agent | Role |
 | --- | --- |
-| **Gather** | Expand topic into 4–6 sub-queries, search (Tavily, `search_depth=high`), dedupe by canonical URL, fetch sources, and mine atomic claims (`Citation`). |
+| **Gather** | Expand topic into 4–6 sub-queries, search (Tavily, `search_depth=high`), dedupe by canonical URL, fetch sources, mine atomic claims (`Citation`), and screen them for relevance so only claims serving the topic + angle reach the writer. |
 | **Write** | Generate the Markdown draft from the source bundle + style profile; every factual sentence carries an inline `[[claim_id]]`. |
 | **Fact-check** | Verify every claim against its source (`FactVerdict`), returning suggested revisions for fixable issues. |
 | **Critique** | Reader-engagement review (`CritiqueReport`) scoring hooks, readability, argument structure, and calls-to-action. |

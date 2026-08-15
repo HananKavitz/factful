@@ -15,6 +15,7 @@ from factful.schemas import (
     ClaimMineOutput,
     MinedClaim,
     QueryExpansion,
+    RelevanceSelection,
     SourceBundle,
 )
 
@@ -63,6 +64,29 @@ Rules:
 - Return structured JSON matching the supplied schema.
 """
 
+_RELEVANCE_INSTRUCTIONS = """
+You are a claim screener. An article will be written about the Topic from the
+given Angle, grounded strictly in the claims below. Decide which claims the writer
+is allowed to use.
+
+Keep ONLY claims that directly serve the topic and angle:
+- The claim states or evidences something the angle will argue, or
+- The claim supplies a figure the writer must anchor on (a market size, growth
+  rate, count, or dollar figure central to the angle), or
+- The claim is a supporting detail the argument genuinely builds on.
+
+Reject claims that are tangential to the spine of the argument:
+- Facts about a different industry, geography, or company that the topic and angle
+  do not center on, e.g. a vendor's product metric or ROI anecdote in an article
+  about a national sector.
+- Figures that duplicate a stronger, more relevant claim.
+- "Interesting but irrelevant" numbers that would read as asides.
+
+When in doubt, reject: a focused article uses fewer, deeper claims. Return the
+claim_ids to keep, listed in the same order they appear below. An empty list is
+acceptable when no claim serves the topic and angle.
+"""
+
 
 def build_expand_prompt(topic: str, angle: str, *, today: date | None = None) -> str:
     today = today or date.today()
@@ -89,6 +113,30 @@ def build_mine_prompt(page: Page) -> str:
     )
 
 
+def build_relevance_prompt(
+    topic: str,
+    angle: str,
+    citations: list[Citation],
+    *,
+    today: date | None = None,
+) -> str:
+    today = today or date.today()
+    lines = "\n".join(
+        f"{index}. claim_id={c.claim_id} | claim={c.claim} | key_stat={c.key_stat} | "
+        f"source={c.source_title} | publisher={c.publisher}"
+        for index, c in enumerate(citations, start=1)
+    )
+    return (
+        f"Topic: {topic}\n"
+        f"Angle: {angle}\n\n"
+        f"Today is {today.isoformat()}.\n\n"
+        f"Candidate claims:\n{lines}\n\n"
+        f"{_RELEVANCE_INSTRUCTIONS}\n\n"
+        f"Output schema (return JSON matching this shape):\n"
+        f"{json.dumps(RelevanceSelection.model_json_schema(), indent=2)}"
+    )
+
+
 def expand_queries(
     topic: str,
     angle: str,
@@ -111,6 +159,24 @@ def mine_claims(page: Page, *, client: ChatClient) -> list[MinedClaim]:
     if not isinstance(result, ClaimMineOutput):
         raise TypeError(f"expected ClaimMineOutput, got {type(result).__name__}")
     return result.claims
+
+
+def filter_relevant(
+    citations: list[Citation],
+    topic: str,
+    angle: str,
+    *,
+    client: ChatClient,
+    today: date | None = None,
+) -> list[Citation]:
+    if not citations:
+        return citations
+    prompt = build_relevance_prompt(topic, angle, citations, today=today)
+    result = client.chat_completion(prompt=prompt, schema=RelevanceSelection)
+    if not isinstance(result, RelevanceSelection):
+        raise TypeError(f"expected RelevanceSelection, got {type(result).__name__}")
+    keep = set(result.keep_claim_ids)
+    return [citation for citation in citations if citation.claim_id in keep]
 
 
 def dedupe_by_url(results: list[SearchResult]) -> list[SearchResult]:
@@ -192,4 +258,10 @@ def gather(
             next_id += 1
     if not citations:
         raise ValueError(f"gather produced no citations for topic {topic!r}")
-    return SourceBundle(topic=topic, angle=angle, citations=citations)
+    focused = filter_relevant(citations, topic, angle, client=client, today=today)
+    if not focused:
+        raise ValueError(
+            f"relevance filter kept no claims for topic {topic!r}: could not build "
+            "a focused source bundle"
+        )
+    return SourceBundle(topic=topic, angle=angle, citations=focused)
