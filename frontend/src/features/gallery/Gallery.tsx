@@ -12,7 +12,7 @@ function formatDate(iso: string): string {
 }
 
 export function Gallery() {
-  const { data: stories, isLoading } = useListStoriesQuery();
+  const { data: stories, isLoading, isError, refetch } = useListStoriesQuery();
   const [open, setOpen] = useState(false);
 
   return (
@@ -26,6 +26,18 @@ export function Gallery() {
           Create new story
         </button>
       </div>
+
+      {isError && (
+        <div className="mt-6">
+          <p className="text-sm text-red-600">Couldn't load your stories.</p>
+          <button
+            onClick={refetch}
+            className="mt-2 rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {isLoading && <p className="mt-6 text-slate-400">Loading…</p>}
       {stories && stories.length === 0 && (

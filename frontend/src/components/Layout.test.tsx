@@ -36,14 +36,14 @@ function renderLayout(user: User | null) {
 }
 
 describe("Layout", () => {
-  it("renders the brand and Stories in the sidebar navigation", () => {
+  it("makes the factful brand a link to the gallery with no nav links", () => {
     renderLayout(alice);
 
     const sidebar = screen.getByRole("complementary");
-    expect(within(sidebar).getByText("factful")).toBeInTheDocument();
-    const nav = within(sidebar).getByRole("navigation");
-    expect(within(nav).getByRole("link", { name: "Stories" })).toBeInTheDocument();
-    expect(within(nav).queryByRole("link", { name: "Settings" })).not.toBeInTheDocument();
+    const brand = within(sidebar).getByRole("link", { name: "factful" });
+    expect(brand).toHaveAttribute("href", "/");
+    expect(within(sidebar).queryByRole("link", { name: "Stories" })).not.toBeInTheDocument();
+    expect(within(sidebar).queryByRole("navigation")).not.toBeInTheDocument();
   });
 
   it("places a settings gear icon in the lower part of the sidebar", () => {

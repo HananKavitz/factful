@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useGetJobQuery } from "../jobs/jobsApi";
 import { useCreateStoryMutation } from "../stories/storiesApi";
@@ -19,6 +19,22 @@ export function CreateStoryModal({ onClose }: CreateStoryModalProps) {
     pollingInterval: 1500,
   });
   const navigate = useNavigate();
+  const topicRef = useRef<HTMLInputElement>(null);
+
+  const running = jobId !== null && job?.status !== "done" && job?.status !== "error";
+
+  useEffect(() => {
+    topicRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (running) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [running, onClose]);
 
   useEffect(() => {
     if (job?.status === "done" && job.story_id != null) {
@@ -47,12 +63,12 @@ export function CreateStoryModal({ onClose }: CreateStoryModalProps) {
     }
   };
 
-  const running = jobId !== null && job?.status !== "done" && job?.status !== "error";
-
   return (
     <div
       className="fixed inset-0 z-10 flex items-center justify-center bg-slate-900/40 px-4"
-      onClick={onClose}
+      onClick={() => {
+        if (!running) onClose();
+      }}
     >
       <div
         className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl"
@@ -75,6 +91,7 @@ export function CreateStoryModal({ onClose }: CreateStoryModalProps) {
             <label className="block">
               <span className="text-sm font-medium text-slate-700">Topic</span>
               <input
+                ref={topicRef}
                 value={topic}
                 onChange={(event) => setTopic(event.target.value)}
                 placeholder="e.g. Chip demand in 2026"

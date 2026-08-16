@@ -7,11 +7,6 @@ interface LayoutProps {
   children: React.ReactNode;
 }
 
-const navClass = ({ isActive }: { isActive: boolean }) =>
-  isActive
-    ? "rounded-md bg-blush px-3 py-2 text-sm font-medium text-slate-900"
-    : "rounded-md px-3 py-2 text-sm text-slate-500 hover:bg-blush/40 hover:text-slate-900";
-
 const gearClass = ({ isActive }: { isActive: boolean }) =>
   isActive
     ? "inline-flex h-9 w-9 items-center justify-center rounded-md bg-blush text-slate-900"
@@ -31,13 +26,14 @@ export function Layout({ children }: LayoutProps) {
     <div className="flex min-h-screen bg-white">
       <aside className="flex w-56 shrink-0 flex-col border-r border-slate-200 bg-white">
         <div className="px-5 py-5">
-          <span className="text-lg font-bold text-slate-900">factful</span>
-        </div>
-        <nav className="flex flex-col gap-1 px-3">
-          <NavLink to="/" end className={navClass}>
-            Stories
+          <NavLink
+            to="/"
+            end
+            className="block text-lg font-bold text-slate-900 hover:text-blush-dark"
+          >
+            factful
           </NavLink>
-        </nav>
+        </div>
         <footer className="mt-auto border-t border-slate-200 px-4 py-4">
           <div className="flex items-center justify-between">
             {user ? (

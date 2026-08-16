@@ -139,4 +139,14 @@ describe("StoryEditor", () => {
     const button = screen.getByRole("button", { name: "Apply edit" });
     expect(button).toBeDisabled();
   });
+
+  it("shows a live word count for the markdown", async () => {
+    renderEditor();
+    const editor = screen.getByDisplayValue(/^# Chips\s+Demand is rising\.\s*$/);
+    expect(screen.getByText("5 words")).toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.clear(editor);
+    expect(screen.getByText("0 words")).toBeInTheDocument();
+  });
 });

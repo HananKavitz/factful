@@ -77,6 +77,8 @@ function EditorForm({ story }: EditorFormProps) {
     }
   };
 
+  const wordCount = markdown.trim() ? markdown.trim().split(/\s+/).length : 0;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -99,6 +101,11 @@ function EditorForm({ story }: EditorFormProps) {
         rows={24}
         className={`${inputClass} font-mono text-xs leading-relaxed`}
       />
+      <div className="-mt-3 flex justify-end">
+        <span className="text-xs text-slate-400">
+          {wordCount} {wordCount === 1 ? "word" : "words"}
+        </span>
+      </div>
 
       <form
         onSubmit={handlePromptEdit}

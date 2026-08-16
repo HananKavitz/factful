@@ -5,6 +5,16 @@
   --color-blush-dark: #c77dff;
 }
 
+@layer base {
+  button:not(:disabled) {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+
 body {
   @apply bg-white text-slate-900 antialiased;
 }
