@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useEditStoryMutation, useGetStoryQuery, useUpdateStoryMutation } from "../stories/storiesApi";
+import type { StoryDetail } from "../../types";
 
 const SAVE_DELAY_MS = 800;
 
@@ -22,50 +23,6 @@ export function StoryEditor() {
   const { storyId } = useParams();
   const id = Number(storyId);
   const { data: story, isLoading } = useGetStoryQuery(id);
-  const [updateStory, { isLoading: saving }] = useUpdateStoryMutation();
-  const [editStory, { isLoading: editing }] = useEditStoryMutation();
-
-  const [title, setTitle] = useState("");
-  const [markdown, setMarkdown] = useState("");
-  const [prompt, setPrompt] = useState("");
-  const [saveError, setSaveError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (story) {
-      setTitle(story.title);
-      setMarkdown(story.markdown);
-    }
-  }, [story?.id]);
-
-  const debouncedTitle = useDebouncedValue(title, SAVE_DELAY_MS);
-  const debouncedMarkdown = useDebouncedValue(markdown, SAVE_DELAY_MS);
-
-  useEffect(() => {
-    if (!story) return;
-    if (debouncedTitle === story.title && debouncedMarkdown === story.markdown) {
-      return;
-    }
-    updateStory({
-      id,
-      body: { title: debouncedTitle, markdown: debouncedMarkdown },
-    })
-      .unwrap()
-      .then(() => setSaveError(null))
-      .catch(() => setSaveError("Autosave failed. Check your connection."));
-  }, [debouncedTitle, debouncedMarkdown, story, id, updateStory]);
-
-  const handlePromptEdit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!prompt.trim()) return;
-    try {
-      const result = await editStory({ id, body: { prompt: prompt.trim() } }).unwrap();
-      setTitle(result.title);
-      setMarkdown(result.markdown);
-      setPrompt("");
-    } catch {
-      setSaveError("Edit failed. Please try again.");
-    }
-  };
 
   if (isLoading) {
     return <p className="text-slate-400">Loading…</p>;
@@ -74,6 +31,51 @@ export function StoryEditor() {
   if (!story) {
     return <p className="text-slate-500">Story not found.</p>;
   }
+
+  return <EditorForm key={story.id} story={story} />;
+}
+
+interface EditorFormProps {
+  story: StoryDetail;
+}
+
+function EditorForm({ story }: EditorFormProps) {
+  const [updateStory, { isLoading: saving }] = useUpdateStoryMutation();
+  const [editStory, { isLoading: editing }] = useEditStoryMutation();
+
+  const [title, setTitle] = useState(story.title);
+  const [markdown, setMarkdown] = useState(story.markdown);
+  const [prompt, setPrompt] = useState("");
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const debouncedTitle = useDebouncedValue(title, SAVE_DELAY_MS);
+  const debouncedMarkdown = useDebouncedValue(markdown, SAVE_DELAY_MS);
+
+  useEffect(() => {
+    if (debouncedTitle === story.title && debouncedMarkdown === story.markdown) {
+      return;
+    }
+    updateStory({
+      id: story.id,
+      body: { title: debouncedTitle, markdown: debouncedMarkdown },
+    })
+      .unwrap()
+      .then(() => setSaveError(null))
+      .catch(() => setSaveError("Autosave failed. Check your connection."));
+  }, [debouncedTitle, debouncedMarkdown, story, updateStory]);
+
+  const handlePromptEdit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!prompt.trim()) return;
+    try {
+      const result = await editStory({ id: story.id, body: { prompt: prompt.trim() } }).unwrap();
+      setTitle(result.title);
+      setMarkdown(result.markdown);
+      setPrompt("");
+    } catch {
+      setSaveError("Edit failed. Please try again.");
+    }
+  };
 
   return (
     <div className="space-y-4">

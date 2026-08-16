@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useAppDispatch } from "../../app/hooks";
+import { useAppDispatch, useAppSelector } from "../../app/hooks";
 import { useGetMeQuery, useMockLoginMutation } from "./authApi";
 import { setUser } from "./authSlice";
 
@@ -9,22 +9,26 @@ interface AuthGateProps {
 
 export function AuthGate({ children }: AuthGateProps) {
   const dispatch = useAppDispatch();
-  const { data: user, refetch, isUninitialized, isFetching, isSuccess, isError } =
-    useGetMeQuery();
+  const user = useAppSelector((state) => state.auth.user);
+  const { data, isUninitialized, isFetching, isSuccess, isError } = useGetMeQuery();
   const [mockLogin, { isLoading: loggingIn }] = useMockLoginMutation();
   const [email, setEmail] = useState("");
 
   useEffect(() => {
-    if (isSuccess && user) dispatch(setUser(user));
+    if (isSuccess && data) dispatch(setUser(data));
     if (isError) dispatch(setUser(null));
-  }, [isSuccess, isError, user, dispatch]);
+  }, [isSuccess, isError, data, dispatch]);
 
   const handleMockLogin = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!email.trim()) return;
-    await mockLogin({ email: email.trim() }).unwrap();
-    refetch();
+    const loggedIn = await mockLogin({ email: email.trim() }).unwrap();
+    dispatch(setUser(loggedIn));
   };
+
+  if (user) {
+    return <>{children}</>;
+  }
 
   if (isUninitialized || isFetching) {
     return (
