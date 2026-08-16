@@ -12,14 +12,11 @@ class RuntimeStub:
     searcher: object
     fetcher: object
     clients: object
-    profile: object
 
 
 def test_build_editor_strips_claim_tags_from_result(monkeypatch) -> None:
     clients = type("Clients", (), {"writer": "writer-client"})()
-    runtime = RuntimeStub(
-        settings="settings", searcher=None, fetcher=None, clients=clients, profile="profile"
-    )
+    runtime = RuntimeStub(settings="settings", searcher=None, fetcher=None, clients=clients)
     monkeypatch.setattr(editing, "build_runtime", lambda env: runtime)
     monkeypatch.setattr(
         editing,
@@ -37,9 +34,7 @@ def test_build_editor_strips_claim_tags_from_result(monkeypatch) -> None:
 
 def test_build_editor_passes_client_and_profile(monkeypatch) -> None:
     clients = type("Clients", (), {"writer": "writer-client"})()
-    runtime = RuntimeStub(
-        settings="settings", searcher=None, fetcher=None, clients=clients, profile="profile"
-    )
+    runtime = RuntimeStub(settings="settings", searcher=None, fetcher=None, clients=clients)
     monkeypatch.setattr(editing, "build_runtime", lambda env: runtime)
     captured: dict[str, object] = {}
     monkeypatch.setattr(
@@ -54,10 +49,29 @@ def test_build_editor_passes_client_and_profile(monkeypatch) -> None:
     )
 
     edit = editing.build_editor(env={})
-    edit("body", "rewrite the lead")
+    edit("body", "rewrite the lead", "profile")
 
     assert captured["markdown"] == "body"
     assert captured["prompt"] == "rewrite the lead"
     assert captured["profile"] == "profile"
     assert captured["client"] == "writer-client"
     assert captured["settings"] == "settings"
+
+
+def test_build_editor_falls_back_to_neutral_profile(monkeypatch) -> None:
+    clients = type("Clients", (), {"writer": "writer-client"})()
+    runtime = RuntimeStub(settings="settings", searcher=None, fetcher=None, clients=clients)
+    monkeypatch.setattr(editing, "build_runtime", lambda env: runtime)
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        editing,
+        "apply_user_edit",
+        lambda markdown, prompt, profile, *, client, settings: (
+            captured.update(profile=profile) or Draft(title="T", markdown="result")
+        ),
+    )
+
+    edit = editing.build_editor(env={})
+    edit("body", "rewrite the lead")
+
+    assert captured["profile"].name == "neutral"

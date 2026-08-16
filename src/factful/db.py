@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import create_engine, event
@@ -65,4 +66,28 @@ def session_factory(engine: Engine) -> sessionmaker[Session]:
 
 
 def init_db(engine: Engine) -> None:
-    Base.metadata.create_all(engine)
+    if _is_ephemeral(engine):
+        Base.metadata.create_all(engine)
+        return
+    _upgrade_to_head(engine)
+
+
+def _is_ephemeral(engine: Engine) -> bool:
+    url = engine.url
+    if url.drivername != "sqlite":
+        return False
+    return url.database in (None, "", ":memory:")
+
+
+def _migrations_dir() -> Path:
+    return Path(__file__).resolve().parents[2] / "migrations"
+
+
+def _upgrade_to_head(engine: Engine) -> None:
+    from alembic import command
+    from alembic.config import Config
+
+    config = Config()
+    config.set_main_option("script_location", str(_migrations_dir()))
+    config.attributes["engine"] = engine
+    command.upgrade(config, "head")

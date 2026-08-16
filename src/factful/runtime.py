@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from pathlib import Path
 
 from factful.agents.fetch import Fetcher, HttpxFetcher
 from factful.agents.search import Searcher, TavilySearcher
 from factful.config import Settings, load_settings
 from factful.llm import ModelRouter, OpenRouterClient
 from factful.pipeline import PipelineClients
-from factful.style.io import load_profile
-from factful.style.schema import StyleProfile
 
 
 @dataclass(frozen=True)
@@ -21,7 +18,6 @@ class PipelineRuntime:
     searcher: Searcher
     fetcher: Fetcher
     clients: PipelineClients
-    profile: StyleProfile
 
 
 def build_runtime(env: dict[str, str] | None = None) -> PipelineRuntime:
@@ -43,11 +39,9 @@ def build_runtime(env: dict[str, str] | None = None) -> PipelineRuntime:
         ),
         critic=OpenRouterClient(model=router.resolve("critic"), api_key=api_key, base_url=base_url),
     )
-    profile = load_profile(Path("src/factful/style/profiles") / f"{settings.writer.profile}.yaml")
     return PipelineRuntime(
         settings=settings,
         searcher=TavilySearcher(api_key=tavily_key, days=settings.gather.search_days),
         fetcher=HttpxFetcher(),
         clients=clients,
-        profile=profile,
     )

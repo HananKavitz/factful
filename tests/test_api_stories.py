@@ -7,7 +7,8 @@ from fastapi.testclient import TestClient
 
 from factful.api.app import create_app
 from factful.generation import GenerationRequest
-from factful.models import Story
+from factful.models import Story, User
+from factful.style.schema import StyleExtraction, StyleMetrics, StyleProfile
 
 
 def make_client():
@@ -48,10 +49,27 @@ def make_runner(app):
 
 
 def make_editor():
-    def edit(markdown: str, prompt: str) -> str:
+    def edit(markdown: str, prompt: str, style=None) -> str:
         return markdown.replace("Body.", f"Body. (edited: {prompt})")
 
     return edit
+
+
+def make_user_profile() -> StyleProfile:
+    return StyleProfile(
+        name="my-voice",
+        metrics=StyleMetrics(avg_sentence_words=16.0, avg_paragraph_sentences=3.0),
+        extraction=StyleExtraction(voice="wry", tone="dry"),
+    )
+
+
+def set_style(client: TestClient, email: str = "alice@example.com") -> StyleProfile:
+    profile = make_user_profile()
+    with client.app.state.sessions() as db:
+        user = db.query(User).filter_by(email=email).one()
+        user.style_profile = profile.model_dump_json()
+        db.commit()
+    return profile
 
 
 def login(client: TestClient, email: str = "alice@example.com") -> dict:
@@ -196,3 +214,50 @@ def test_edit_story_is_owner_scoped(client: TestClient) -> None:
     login(other, email="bob@example.com")
     response = other.post(f"/api/stories/{story_id}/edit", json={"prompt": "shorten"})
     assert response.status_code == 404
+
+
+def test_create_story_passes_user_style_profile(client: TestClient) -> None:
+    login(client)
+    profile = set_style(client)
+    captured: dict[str, object] = {}
+
+    def runner(record, request: GenerationRequest) -> None:
+        captured["style_profile"] = request.style_profile
+        record.set_status("done")
+
+    client.app.state.generation_runner = runner
+    response = client.post("/api/stories", json={"topic": "Chip demand"})
+    assert response.status_code == 202
+    assert captured["style_profile"] == profile
+
+
+def test_create_story_passes_none_without_profile(client: TestClient) -> None:
+    login(client)
+    captured: dict[str, object] = {}
+
+    def runner(record, request: GenerationRequest) -> None:
+        captured["style_profile"] = request.style_profile
+        record.set_status("done")
+
+    client.app.state.generation_runner = runner
+    response = client.post("/api/stories", json={"topic": "Chip demand"})
+    assert response.status_code == 202
+    assert captured["style_profile"] is None
+
+
+def test_edit_story_uses_user_style_profile(client: TestClient) -> None:
+    login(client)
+    profile = set_style(client)
+    captured: dict[str, object] = {}
+
+    def editor(markdown: str, prompt: str, style=None) -> str:
+        captured["style"] = style
+        return markdown
+
+    client.app.state.editor = editor
+    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+    story_id = wait_for_job(client, job["job_id"])["story_id"]
+
+    response = client.post(f"/api/stories/{story_id}/edit", json={"prompt": "tighten"})
+    assert response.status_code == 200
+    assert captured["style"] == profile

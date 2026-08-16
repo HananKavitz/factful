@@ -39,6 +39,26 @@ def test_story_requires_user() -> None:
             db.commit()
 
 
+def test_user_style_profile_roundtrip() -> None:
+    sessions = _fresh_session()
+    with sessions() as db:
+        user = User(
+            google_sub="sub-1",
+            email="a@example.com",
+            name="Alice",
+            style_profile='{"name": "voice"}',
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        assert user.style_profile == '{"name": "voice"}'
+
+
+def test_user_style_profile_defaults_to_none() -> None:
+    user = User(google_sub="sub-1", email="a@example.com", name="Alice")
+    assert user.style_profile is None
+
+
 def test_updated_at_changes_on_update() -> None:
     sessions = _fresh_session()
     with sessions() as db:

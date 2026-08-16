@@ -269,6 +269,25 @@ def test_generate_rejects_oversized_instructions(
         main(["generate", "AI trends", "--instructions", long])
 
 
+def test_generate_passes_loaded_profile(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    set_keys(monkeypatch)
+    captured: dict = {}
+    fake_profile = object()
+    monkeypatch.setattr(cli, "load_profile", lambda path: fake_profile)
+    monkeypatch.setattr(
+        cli,
+        "run_pipeline",
+        lambda *a, profile=None, **k: captured.update(profile=profile) or make_result(),
+    )
+    out = tmp_path / "out"
+    rc = main(["generate", "AI trends", "--out", str(out)])
+    assert rc == 0
+    assert captured["profile"] is fake_profile
+
+
 def test_generate_verbose_emits_info_to_stderr(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

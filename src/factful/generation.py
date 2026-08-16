@@ -14,6 +14,8 @@ from factful.models import Story
 from factful.pipeline import DEFAULT_ANGLE, run_pipeline
 from factful.report import serialize_report
 from factful.runtime import build_runtime
+from factful.style.neutral import neutral_profile
+from factful.style.schema import StyleProfile
 
 
 @dataclass(frozen=True)
@@ -22,9 +24,14 @@ class GenerationRequest:
     topic: str
     angle: str | None
     instructions: str | None
+    style_profile: StyleProfile | None = None
 
 
 GenerationRunner = Callable[[JobRecord, GenerationRequest], None]
+
+
+class PipelineCancelledError(Exception):
+    """Raised when a generation job is cancelled at a stage boundary."""
 
 
 def extract_title(markdown: str, fallback: str) -> str:
@@ -48,17 +55,23 @@ def run_generation(
 ) -> None:
     runtime = build_runtime(dict(env))
     angle = request.angle or DEFAULT_ANGLE
-    result = run_pipeline(
-        request.topic,
-        angle,
-        settings=runtime.settings,
-        searcher=runtime.searcher,
-        fetcher=runtime.fetcher,
-        clients=runtime.clients,
-        profile=runtime.profile,
-        instructions=request.instructions,
-        on_progress=record.set_stage,
-    )
+    progress = _cancellable_progress(record)
+    try:
+        result = run_pipeline(
+            request.topic,
+            angle,
+            settings=runtime.settings,
+            searcher=runtime.searcher,
+            fetcher=runtime.fetcher,
+            clients=runtime.clients,
+            profile=request.style_profile or neutral_profile(),
+            instructions=request.instructions,
+            on_progress=progress,
+        )
+    except PipelineCancelledError:
+        return
+    if record.is_cancelled():
+        return
     markdown = strip_claim_tags(result.state.draft or "")
     with sessions() as db:
         story = Story(
@@ -84,3 +97,12 @@ def build_generation_runner(
         run_generation(record, request, sessions=sessions, env=env)
 
     return run
+
+
+def _cancellable_progress(record: JobRecord) -> Callable[[str], None]:
+    def set_stage(stage: str) -> None:
+        if record.is_cancelled():
+            raise PipelineCancelledError()
+        record.set_stage(stage)
+
+    return set_stage

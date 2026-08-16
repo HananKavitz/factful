@@ -19,6 +19,7 @@ from factful.editing import Editor
 from factful.generation import GenerationRequest, extract_title
 from factful.jobstore import JobStore
 from factful.models import Story, User
+from factful.style.schema import StyleProfile
 
 router = APIRouter()
 
@@ -43,10 +44,12 @@ def create_story(
     body: CreateStoryRequest,
     request: Request,
     user: Annotated[User, Depends(get_current_user)],
+    sessions: Sessions,
 ) -> JobStatus:
     job_store: JobStore = request.app.state.job_store
     runner = request.app.state.generation_runner
     record = job_store.create(user_id=user.id)
+    style_profile = _profile_for(user.id, sessions)
     job_store.submit(
         record,
         lambda rec: runner(
@@ -56,6 +59,7 @@ def create_story(
                 topic=body.topic,
                 angle=body.angle,
                 instructions=body.instructions,
+                style_profile=style_profile,
             ),
         ),
     )
@@ -104,15 +108,24 @@ def edit_story(
     sessions: Sessions,
 ) -> StoryDetail:
     editor: Editor = request.app.state.editor
+    style = _profile_for(user.id, sessions)
     with sessions() as db:
         story = _owned_story(db, story_id, user.id)
         if story is None:
             raise HTTPException(status_code=404, detail="story not found")
-        story.markdown = editor(story.markdown, body.prompt)
+        story.markdown = editor(story.markdown, body.prompt, style)
         story.title = extract_title(story.markdown, story.title)
         db.commit()
         db.refresh(story)
         return _to_detail(story)
+
+
+def _profile_for(user_id: int, sessions: Sessions) -> StyleProfile | None:
+    with sessions() as db:
+        user = db.get(User, user_id)
+        if user is None or user.style_profile is None:
+            return None
+        return StyleProfile.model_validate_json(user.style_profile)
 
 
 def _owned_story(db: Session, story_id: int, user_id: int) -> Story | None:

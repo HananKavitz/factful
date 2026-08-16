@@ -9,6 +9,8 @@ from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
 
 from factful.api import auth, jobs, stories
+from factful.api.settings import build_style_extractor
+from factful.api.settings import router as settings_router
 from factful.config import Settings, load_settings, load_web_settings
 from factful.db import build_engine, init_db, session_factory
 from factful.editing import build_editor
@@ -46,10 +48,12 @@ def create_app(
     app.state.job_store = job_store
     app.state.generation_runner = generation_runner
     app.state.editor = editor
+    app.state.style_extractor = build_style_extractor(settings=settings, env=dict(env))
     app.state.env = dict(env)
     app.include_router(auth.router, prefix="/api/auth")
     app.include_router(stories.router, prefix="/api/stories")
     app.include_router(jobs.router, prefix="/api/jobs")
+    app.include_router(settings_router, prefix="/api/settings")
     if frontend_dist is None and env.get("FRONTEND_DIST_DIR"):
         frontend_dist = Path(str(env["FRONTEND_DIST_DIR"]))
     mount_frontend(app, frontend_dist or default_frontend_dist())

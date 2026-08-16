@@ -7,12 +7,18 @@ from sqlalchemy import select
 
 from factful.config import Settings
 from factful.db import build_engine, init_db, session_factory
-from factful.generation import DEFAULT_ANGLE, GenerationRequest, extract_title, run_generation
+from factful.generation import (
+    DEFAULT_ANGLE,
+    GenerationRequest,
+    extract_title,
+    run_generation,
+)
 from factful.jobstore import JobRecord
 from factful.models import Story, User
 from factful.pipeline import PipelineResult
 from factful.schemas import Citation, CritiqueReport, FactVerdict, SourceBundle
 from factful.state import PipelineState
+from factful.style.schema import StyleExtraction, StyleMetrics, StyleProfile
 
 
 def make_result(*, draft: str, score: int = 90) -> PipelineResult:
@@ -57,7 +63,6 @@ class RuntimeStub:
     searcher: object
     fetcher: object
     clients: object
-    profile: object
 
 
 def make_runtime_stub() -> RuntimeStub:
@@ -66,7 +71,14 @@ def make_runtime_stub() -> RuntimeStub:
         searcher=object(),
         fetcher=object(),
         clients=object(),
-        profile=object(),
+    )
+
+
+def make_user_profile() -> StyleProfile:
+    return StyleProfile(
+        name="my-voice",
+        metrics=StyleMetrics(avg_sentence_words=14.0, avg_paragraph_sentences=2.0),
+        extraction=StyleExtraction(voice="wry", tone="dry"),
     )
 
 
@@ -148,5 +160,132 @@ class TestRunGeneration:
         except RuntimeError:
             pass
 
+        with sessions() as db:
+            assert db.scalars(select(Story)).all() == []
+
+    def _seed_user(self, sessions) -> None:
+        with sessions() as db:
+            db.add(
+                User(
+                    id=7,
+                    google_sub="mock:alice@example.com",
+                    email="alice@example.com",
+                    name="Alice",
+                )
+            )
+            db.commit()
+
+    def test_cancelled_at_stage_boundary_persists_no_story(self, tmp_path, monkeypatch) -> None:
+        engine = build_engine(f"sqlite:///{tmp_path / 'cancel.db'}")
+        init_db(engine)
+        sessions = session_factory(engine)
+        self._seed_user(sessions)
+
+        monkeypatch.setattr("factful.generation.build_runtime", lambda env: make_runtime_stub())
+
+        def first_progress_then_boom(*args, **kwargs) -> PipelineResult:
+            kwargs["on_progress"]("gathering sources")
+            raise AssertionError("pipeline must not continue after cancel")
+
+        monkeypatch.setattr("factful.generation.run_pipeline", first_progress_then_boom)
+
+        record = JobRecord("job-cancel", user_id=7)
+        record.set_status("running")
+        record.cancel()
+
+        run_generation(
+            record,
+            GenerationRequest(user_id=7, topic="T", angle=None, instructions=None),
+            sessions=sessions,
+            env={},
+        )
+
+        assert record.snapshot()["status"] == "cancelled"
+        with sessions() as db:
+            assert db.scalars(select(Story)).all() == []
+
+    def test_uses_user_style_profile_when_set(self, tmp_path, monkeypatch) -> None:
+        engine = build_engine(f"sqlite:///{tmp_path / 'profile.db'}")
+        init_db(engine)
+        sessions = session_factory(engine)
+        self._seed_user(sessions)
+
+        captured: dict[str, object] = {}
+        monkeypatch.setattr("factful.generation.build_runtime", lambda env: make_runtime_stub())
+        monkeypatch.setattr(
+            "factful.generation.run_pipeline",
+            lambda *args, profile=None, **kwargs: (
+                captured.update(profile=profile) or fake_pipeline([], kwargs.get("on_progress"))
+            ),
+        )
+
+        record = JobRecord("job-profile", user_id=7)
+        run_generation(
+            record,
+            GenerationRequest(
+                user_id=7,
+                topic="T",
+                angle=None,
+                instructions=None,
+                style_profile=make_user_profile(),
+            ),
+            sessions=sessions,
+            env={},
+        )
+
+        assert captured["profile"] == make_user_profile()
+
+    def test_falls_back_to_neutral_profile_when_unset(self, tmp_path, monkeypatch) -> None:
+        engine = build_engine(f"sqlite:///{tmp_path / 'neutral.db'}")
+        init_db(engine)
+        sessions = session_factory(engine)
+        self._seed_user(sessions)
+
+        captured: dict[str, object] = {}
+        monkeypatch.setattr("factful.generation.build_runtime", lambda env: make_runtime_stub())
+        monkeypatch.setattr(
+            "factful.generation.run_pipeline",
+            lambda *args, profile=None, **kwargs: (
+                captured.update(profile=profile) or fake_pipeline([], kwargs.get("on_progress"))
+            ),
+        )
+
+        record = JobRecord("job-neutral", user_id=7)
+        run_generation(
+            record,
+            GenerationRequest(user_id=7, topic="T", angle=None, instructions=None),
+            sessions=sessions,
+            env={},
+        )
+
+        assert captured["profile"].name == "neutral"
+        engine = build_engine(f"sqlite:///{tmp_path / 'late.db'}")
+        init_db(engine)
+        sessions = session_factory(engine)
+        self._seed_user(sessions)
+
+        monkeypatch.setattr("factful.generation.build_runtime", lambda env: make_runtime_stub())
+
+        def cancel_mid_pipeline(record, *args, **kwargs) -> PipelineResult:
+            kwargs["on_progress"]("writing draft")
+            record.cancel()
+            return make_result(draft="[[c1]]\n# Late\n\nbody")
+
+        monkeypatch.setattr(
+            "factful.generation.run_pipeline",
+            lambda *args, **kwargs: cancel_mid_pipeline(record, *args, **kwargs),
+        )
+
+        record = JobRecord("job-late", user_id=7)
+        record.set_status("running")
+
+        run_generation(
+            record,
+            GenerationRequest(user_id=7, topic="T", angle=None, instructions=None),
+            sessions=sessions,
+            env={},
+        )
+
+        assert record.snapshot()["status"] == "cancelled"
         with sessions() as db:
             assert db.scalars(select(Story)).all() == []

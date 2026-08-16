@@ -21,6 +21,7 @@ from factful.pipeline import DEFAULT_ANGLE, PipelineResult, run_pipeline
 from factful.report import render_report, serialize_report
 from factful.runtime import build_runtime
 from factful.style.analyzer import extract_style
+from factful.style.io import load_profile
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -140,6 +141,9 @@ def _generate_command(args: argparse.Namespace) -> int:
         raise SystemExit("TAVILY_API_KEY is not set; cannot run article generation")
 
     runtime = build_runtime(env)
+    profile = load_profile(
+        Path("src/factful/style/profiles") / f"{runtime.settings.writer.profile}.yaml"
+    )
     result = run_pipeline(
         args.topic,
         args.angle,
@@ -147,7 +151,7 @@ def _generate_command(args: argparse.Namespace) -> int:
         searcher=runtime.searcher,
         fetcher=runtime.fetcher,
         clients=runtime.clients,
-        profile=runtime.profile,
+        profile=profile,
         max_sources=args.max_sources,
         instructions=_load_instructions(
             args, max_chars=runtime.settings.writer.max_instructions_chars

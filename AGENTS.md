@@ -31,6 +31,7 @@ Source of truth for the frontend is **npm**.
 - `npm` — frontend dependency management + scripts.
 - `vitest` — frontend tests.
 - `tsc` — frontend type check.
+- `alembic` — database schema migrations (applies on app boot for real DBs).
 
 ## Commands (canonical dev loop)
 
@@ -49,6 +50,27 @@ npm run typecheck                         # tsc only
 uv run uvicorn factful.api:app --reload   # backend API (port 8000)
 cd frontend && npm run dev                # frontend dev server (proxies /api -> 8000)
 ```
+
+### Database migrations (Alembic)
+
+Schema is managed with Alembic (`migrations/`, `alembic.ini`). `init_db` runs
+`alembic upgrade head` automatically at app boot for every real database (local
+file SQLite and Turso/libsql alike); in-memory engines used by tests are created
+with `create_all` instead.
+
+- Fresh local DB: nothing to do — the first boot creates the full schema.
+- Existing pre-migration local `factful.db` (has tables, no version): stamp once,
+  then boot applies newer migrations.
+  ```sh
+  uv run alembic stamp 0001_baseline
+  uv run alembic upgrade head
+  ```
+- Turso cloud: the empty DB is created in the Turso dashboard; the first deployed
+  boot creates the full schema and later deploys apply new migrations. Use the
+  same `DATABASE_URL` / `TURSO_AUTH_TOKEN` env as the app, and `migrations/env.py`
+  resolves them with the app's own engine logic.
+- Author a new migration with `uv run alembic revision --autogenerate -m "..."`,
+  then review `migrations/versions/` before committing.
 
 The verification gate for the web app additionally runs `npm run test`, `npm run
 build`, and `npm run typecheck` in `frontend/`. In production the FastAPI app also

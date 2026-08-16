@@ -42,6 +42,26 @@ def test_init_db_creates_tables() -> None:
     assert set(inspect(engine).get_table_names()) == {"users", "stories"}
 
 
+def test_init_db_applies_migrations_to_file_db(tmp_path) -> None:
+    engine = build_engine(f"sqlite:///{tmp_path / 'migrated.db'}")
+    init_db(engine)
+    from sqlalchemy import inspect
+
+    inspector = inspect(engine)
+    assert {"users", "stories", "alembic_version"} <= set(inspector.get_table_names())
+    columns = {column["name"] for column in inspector.get_columns("users")}
+    assert "style_profile" in columns
+
+
+def test_init_db_file_backed_is_idempotent(tmp_path) -> None:
+    engine = build_engine(f"sqlite:///{tmp_path / 'twice.db'}")
+    init_db(engine)
+    init_db(engine)
+    from sqlalchemy import inspect
+
+    assert {"users", "stories", "alembic_version"} <= set(inspect(engine).get_table_names())
+
+
 def test_session_factory_roundtrip() -> None:
     engine = build_engine("sqlite:///:memory:")
     init_db(engine)
