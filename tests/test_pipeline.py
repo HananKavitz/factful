@@ -403,6 +403,44 @@ def test_run_pipeline_stops_at_max_passes_cap() -> None:
     assert len(result.state.passes) == 3
 
 
+def test_run_pipeline_reports_progress_stages() -> None:
+    client = FakeClient(drafts=[long_draft()], scores=[90])
+    stages: list[str] = []
+    result = run_pipeline(
+        "Semiconductors",
+        "supply risk",
+        settings=settings(),
+        searcher=FakeSearcher(),
+        fetcher=FakeFetcher(),
+        clients=clients(client),
+        profile=profile(),
+        on_progress=stages.append,
+    )
+    assert result.decision == "publish"
+    assert stages == ["gathering sources", "writing draft", "fact-checking", "critiquing"]
+
+
+def test_run_pipeline_progress_fires_per_pass() -> None:
+    client = FakeClient(
+        drafts=[long_draft("weak draft [[c1]]"), long_draft("better draft [[c1]]")],
+        scores=[70, 90],
+    )
+    stages: list[str] = []
+    result = run_pipeline(
+        "Semiconductors",
+        "supply risk",
+        settings=settings(),
+        searcher=FakeSearcher(),
+        fetcher=FakeFetcher(),
+        clients=clients(client),
+        profile=profile(),
+        on_progress=stages.append,
+    )
+    assert result.state.pass_ == 2
+    assert stages.count("writing draft") == 2
+    assert stages.count("critiquing") == 2
+
+
 def test_run_pipeline_keeps_best_draft_on_oscillation() -> None:
     client = FakeClient(
         drafts=[long_draft("best draft [[c1]]"), long_draft("regressed draft [[c1]]")],

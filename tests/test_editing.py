@@ -1,0 +1,63 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from factful import editing
+from factful.schemas import Draft
+
+
+@dataclass(frozen=True)
+class RuntimeStub:
+    settings: object
+    searcher: object
+    fetcher: object
+    clients: object
+    profile: object
+
+
+def test_build_editor_strips_claim_tags_from_result(monkeypatch) -> None:
+    clients = type("Clients", (), {"writer": "writer-client"})()
+    runtime = RuntimeStub(
+        settings="settings", searcher=None, fetcher=None, clients=clients, profile="profile"
+    )
+    monkeypatch.setattr(editing, "build_runtime", lambda env: runtime)
+    monkeypatch.setattr(
+        editing,
+        "apply_user_edit",
+        lambda markdown, prompt, profile, *, client, settings: Draft(
+            title="T", markdown=f"{prompt} [[c1]] revised"
+        ),
+    )
+
+    edit = editing.build_editor(env={"LLM_API_KEY": "k"})
+    result = edit("original body", "tighten it")
+
+    assert result == "tighten it revised"
+
+
+def test_build_editor_passes_client_and_profile(monkeypatch) -> None:
+    clients = type("Clients", (), {"writer": "writer-client"})()
+    runtime = RuntimeStub(
+        settings="settings", searcher=None, fetcher=None, clients=clients, profile="profile"
+    )
+    monkeypatch.setattr(editing, "build_runtime", lambda env: runtime)
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        editing,
+        "apply_user_edit",
+        lambda markdown, prompt, profile, *, client, settings: (
+            captured.update(
+                markdown=markdown, prompt=prompt, profile=profile, client=client, settings=settings
+            )
+            or Draft(title="T", markdown="result")
+        ),
+    )
+
+    edit = editing.build_editor(env={})
+    edit("body", "rewrite the lead")
+
+    assert captured["markdown"] == "body"
+    assert captured["prompt"] == "rewrite the lead"
+    assert captured["profile"] == "profile"
+    assert captured["client"] == "writer-client"
+    assert captured["settings"] == "settings"

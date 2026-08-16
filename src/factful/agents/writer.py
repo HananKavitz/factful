@@ -261,6 +261,64 @@ def revise_article(
     )
 
 
+_EDIT_INSTRUCTIONS = """
+You are editing an existing Substack draft to apply the author's instruction.
+Apply the requested change faithfully while preserving everything else.
+
+Rules:
+- Change ONLY what the instruction asks for. Do not rewrite unrelated passages,
+  add new claims, or drop existing content.
+- Keep the voice, tone, paragraph pacing, and structure of the current draft.
+- The draft contains no source tags; do not invent statistics or citations.
+- If the instruction conflicts with the draft's existing content, follow the
+  instruction and keep the surrounding prose coherent.
+
+Return the edited article as Markdown that fits the supplied output schema.
+"""
+
+
+def build_user_edit_prompt(
+    markdown: str,
+    instruction: str,
+    profile: StyleProfile,
+    *,
+    settings: Settings | None = None,
+    today: date | None = None,
+) -> str:
+    settings = settings if settings is not None else Settings()
+    writer = settings.writer
+    today = today or date.today()
+    return (
+        f"Today is {today.isoformat()}.\n\n"
+        f"Style profile:\n{json.dumps(profile.model_dump(), indent=2)}\n\n"
+        f"Current draft:\n{markdown}\n\n"
+        f"Author's instruction:\n{instruction}\n\n"
+        f"{_length_guidance(writer.min_words, writer.target_words, writer.max_words)}\n\n"
+        f"{_paragraph_guidance(profile.metrics.avg_paragraph_sentences)}\n\n"
+        f"{_EDIT_INSTRUCTIONS}\n\n"
+        f"Output schema (return JSON matching this shape):\n"
+        f"{json.dumps(Draft.model_json_schema(), indent=2)}"
+    )
+
+
+def apply_user_edit(
+    markdown: str,
+    instruction: str,
+    profile: StyleProfile,
+    *,
+    client: ChatClient,
+    settings: Settings | None = None,
+    today: date | None = None,
+) -> Draft:
+    prompt = build_user_edit_prompt(markdown, instruction, profile, settings=settings, today=today)
+    result = client.chat_completion(prompt=prompt, schema=Draft)
+    if not isinstance(result, Draft):
+        raise TypeError(f"expected Draft, got {type(result).__name__}")
+    return result.model_copy(
+        update={"markdown": normalize_paragraphs(result.markdown, profile=profile)}
+    )
+
+
 def extract_referenced_claims(markdown: str) -> list[str]:
     claims: list[str] = []
     for match in _CLAIM_TAG.findall(markdown):

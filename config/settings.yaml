@@ -32,3 +32,10 @@ llm:
     writer: deepseek/deepseek-v4-pro
     factcheck: openai/gpt-4o-mini
     critic: openai/gpt-4o-mini
+
+web:
+  database_url: sqlite:///./factful.db
+  auth_mode: google
+  session_secret: dev-secret-change-me
+  google_client_id: ""
+  google_client_secret: ""

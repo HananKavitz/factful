@@ -1,0 +1,198 @@
+from __future__ import annotations
+
+import time
+
+import pytest
+from fastapi.testclient import TestClient
+
+from factful.api.app import create_app
+from factful.generation import GenerationRequest
+from factful.models import Story
+
+
+def make_client():
+    app = create_app(
+        env={
+            "DATABASE_URL": "sqlite:///:memory:",
+            "AUTH_MODE": "mock",
+            "SESSION_SECRET": "test-secret",
+            "LLM_API_KEY": "k",
+            "TAVILY_API_KEY": "t",
+        }
+    )
+    app.state.generation_runner = make_runner(app)
+    app.state.editor = make_editor()
+    return TestClient(app)
+
+
+def make_runner(app):
+    def runner(record, request: GenerationRequest) -> None:
+        with app.state.sessions() as db:
+            story = Story(
+                user_id=request.user_id,
+                topic=request.topic,
+                angle=request.angle,
+                instructions=request.instructions,
+                title=f"About {request.topic}",
+                markdown=f"# About {request.topic}\n\nBody.",
+                score=90.0,
+                report='{"decision": "publish"}',
+            )
+            db.add(story)
+            db.commit()
+            db.refresh(story)
+            record.set_stage("writing draft")
+            record.set_story_id(story.id)
+
+    return runner
+
+
+def make_editor():
+    def edit(markdown: str, prompt: str) -> str:
+        return markdown.replace("Body.", f"Body. (edited: {prompt})")
+
+    return edit
+
+
+def login(client: TestClient, email: str = "alice@example.com") -> dict:
+    response = client.post("/api/auth/mock", json={"email": email})
+    assert response.status_code == 200
+    return response.json()
+
+
+def wait_for_job(client: TestClient, job_id: str, timeout: float = 5.0) -> dict:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        response = client.get(f"/api/jobs/{job_id}")
+        assert response.status_code == 200
+        body = response.json()
+        if body["status"] in ("done", "error"):
+            return body
+        time.sleep(0.01)
+    raise AssertionError(f"job {job_id} did not finish within {timeout}s")
+
+
+@pytest.fixture()
+def client() -> TestClient:
+    return make_client()
+
+
+def test_list_stories_requires_auth(client: TestClient) -> None:
+    assert client.get("/api/stories").status_code == 401
+
+
+def test_create_story_kicks_off_job(client: TestClient) -> None:
+    login(client)
+    response = client.post("/api/stories", json={"topic": "Chip demand", "instructions": "short"})
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] in ("queued", "running")
+    assert body["stage"] is None
+
+    done = wait_for_job(client, body["job_id"])
+    assert done["status"] == "done"
+    assert done["story_id"] is not None
+
+    story = client.get(f"/api/stories/{done['story_id']}").json()
+    assert story["topic"] == "Chip demand"
+    assert story["instructions"] == "short"
+    assert story["markdown"].startswith("# About Chip demand")
+
+
+def test_list_stories_shows_only_owned(client: TestClient) -> None:
+    alice = login(client)
+    assert alice["email"] == "alice@example.com"
+    client.post("/api/stories", json={"topic": "Chip demand"})
+    client.post("/api/stories", json={"topic": "Solar cells"})
+
+    bob = make_client()
+    login(bob)
+    assert bob.get("/api/stories").json() == []
+
+    mine = client.get("/api/stories").json()
+    assert [s["topic"] for s in mine] == ["Solar cells", "Chip demand"]
+
+
+def test_get_story_is_owner_scoped(client: TestClient) -> None:
+    login(client)
+    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+    story_id = wait_for_job(client, job["job_id"])["story_id"]
+
+    other = make_client()
+    login(other, email="bob@example.com")
+    assert other.get(f"/api/stories/{story_id}").status_code == 404
+
+
+def test_update_story_title_and_markdown(client: TestClient) -> None:
+    login(client)
+    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+    story_id = wait_for_job(client, job["job_id"])["story_id"]
+
+    response = client.put(
+        f"/api/stories/{story_id}",
+        json={"title": "New title", "markdown": "# New title\n\nEdited."},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["title"] == "New title"
+    assert body["markdown"] == "# New title\n\nEdited."
+
+    fetched = client.get(f"/api/stories/{story_id}").json()
+    assert fetched["title"] == "New title"
+
+
+def test_update_unknown_story_404(client: TestClient) -> None:
+    login(client)
+    assert client.put("/api/stories/999", json={"title": "x"}).status_code == 404
+
+
+def test_job_status_is_owner_scoped(client: TestClient) -> None:
+    login(client)
+    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+
+    other = make_client()
+    login(other, email="bob@example.com")
+    assert other.get(f"/api/jobs/{job['job_id']}").status_code == 404
+
+
+def test_unknown_job_404(client: TestClient) -> None:
+    login(client)
+    assert client.get("/api/jobs/does-not-exist").status_code == 404
+
+
+def test_edit_story_applies_prompt(client: TestClient) -> None:
+    login(client)
+    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+    story_id = wait_for_job(client, job["job_id"])["story_id"]
+
+    response = client.post(f"/api/stories/{story_id}/edit", json={"prompt": "make it punchier"})
+    assert response.status_code == 200
+    body = response.json()
+    assert "Body. (edited: make it punchier)" in body["markdown"]
+
+    fetched = client.get(f"/api/stories/{story_id}").json()
+    assert "Body. (edited: make it punchier)" in fetched["markdown"]
+
+
+def test_edit_story_requires_valid_prompt(client: TestClient) -> None:
+    login(client)
+    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+    story_id = wait_for_job(client, job["job_id"])["story_id"]
+
+    assert client.post(f"/api/stories/{story_id}/edit", json={"prompt": ""}).status_code == 422
+
+
+def test_edit_unknown_story_404(client: TestClient) -> None:
+    login(client)
+    assert client.post("/api/stories/999/edit", json={"prompt": "shorten"}).status_code == 404
+
+
+def test_edit_story_is_owner_scoped(client: TestClient) -> None:
+    login(client)
+    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+    story_id = wait_for_job(client, job["job_id"])["story_id"]
+
+    other = make_client()
+    login(other, email="bob@example.com")
+    response = other.post(f"/api/stories/{story_id}/edit", json={"prompt": "shorten"})
+    assert response.status_code == 404

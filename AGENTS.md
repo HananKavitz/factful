@@ -8,13 +8,13 @@ truth for project-wide conventions and commands. Update it when conventions chan
 `factful` — a Substack articles generator.
 
 - **Python core** — pure domain logic and a FastAPI app that exposes it over JSON.
-- **Frontend (planned)** — a React/Redux SPA will consume the API. Lives in `frontend/`.
+- **Frontend** — a React/Redux SPA that consumes the API. Lives in `frontend/`.
 - TDD is a first-class project value: tests drive development, not the other way round.
 
 ## Repo layout
 
 - `src/factful/` — Python package (core logic + FastAPI API).
-- `frontend/` — future React/Redux SPA (not yet created).
+- `frontend/` — React/Redux SPA (Vite + TypeScript + Tailwind).
 - `tests/` — mirrors the `src/` layout, with fixtures in `conftest.py`.
 - `config/` — `substack.toml` and `.env*` (never committed).
 - `docs/` — project documentation (git ignored).
@@ -22,22 +22,37 @@ truth for project-wide conventions and commands. Update it when conventions chan
 ## Tooling
 
 Source of truth for the Python environment and dependencies is **uv**.
+Source of truth for the frontend is **npm**.
 
-- `uv` — environment + dependency management.
-- `pytest` — tests.
-- `ruff` — lint + format.
-- `mypy` — static type checking.
+- `uv` — Python env + dependency management.
+- `pytest` — Python tests.
+- `ruff` — Python lint + format.
+- `mypy` — Python static type checking.
+- `npm` — frontend dependency management + scripts.
+- `vitest` — frontend tests.
+- `tsc` — frontend type check.
 
 ## Commands (canonical dev loop)
 
 ```sh
-uv sync                                   # install deps
-uv run pytest                             # run tests
-uv run ruff check .                       # lint
-uv run ruff format --check .              # format check
-uv run mypy -p factful                    # type check
-uv run uvicorn factful.api:app --reload   # run dev server
+uv sync                                   # install Python deps
+uv run pytest                             # run Python tests
+uv run ruff check .                       # lint Python
+uv run ruff format --check .              # format check Python
+uv run mypy -p factful                    # type check Python
+
+cd frontend && npm install                # install frontend deps
+npm run test                              # run frontend tests
+npm run build                             # type-check + build the SPA
+npm run typecheck                         # tsc only
+
+uv run uvicorn factful.api:app --reload   # backend API (port 8000)
+cd frontend && npm run dev                # frontend dev server (proxies /api -> 8000)
 ```
+
+The verification gate for the web app additionally runs `npm run test`, `npm run
+build`, and `npm run typecheck` in `frontend/`. In production the FastAPI app also
+serves the built SPA (`frontend/dist`) via `src/factful/static.py`.
 
 ## Development workflow (TDD)
 
@@ -50,7 +65,8 @@ then clean up. A change is not done until the full verification gate (below) pas
 
 - **TDD** — write the failing test before the implementation; no red-driven-after code.
 - **Verification gate** — a change is only "done" when `pytest`, `ruff check`,
-  `ruff format --check`, and `mypy` all pass.
+  `ruff format --check`, and `mypy` all pass, plus the frontend gate
+  (`npm run test`, `npm run build`, `npm run typecheck` in `frontend/`).
 - **Never commit secrets** — `.env`, `.env.*`, and `config/substack.toml` stay out of git.
 - **No network calls in unit tests** — mock the Substack/client I/O layer; tests stay fast, deterministic, and hermetic.
 - **No speculative code** — YAGNI. Build only what the tests and current scope require. No unused abstractions, dead paths, or guessed features.
@@ -75,9 +91,9 @@ then clean up. A change is not done until the full verification gate (below) pas
 - Config comes from `config/substack.toml` and `.env`; wire through a config layer rather than hardcoding values.
 - Keep pure domain logic independent of I/O so it stays unit-testable (see Separation of Concerns).
 
-## Frontend (React/Redux — planned, not yet present)
+## Frontend (React/Redux)
 
-When the React app lands, TDD continues there: Vitest + React Testing Library for
-component/unit tests, Redux Toolkit + RTK Query for state and data fetching. Tooling
-(command names, package manager) will be recorded here in the actual file — this section
-documents intent only and will be finalized when the app is scaffolded.
+Vitest + React Testing Library for component/unit tests, Redux Toolkit + RTK Query
+for state and data fetching. Vite dev server proxies `/api` to `http://localhost:8000`.
+Tests mock RTK Query hooks and never hit the network. State lives in
+`src/features/*/` with `*Api.ts` (RTK Query) and `*Slice.ts` (Redux) per feature.

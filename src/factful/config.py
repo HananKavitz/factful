@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,16 @@ class LLM(BaseModel):
     models: dict[str, str] = Field(default_factory=dict)
 
 
+class Web(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    database_url: str = Field(default="sqlite:///./factful.db", min_length=1)
+    auth_mode: str = Field(default="google", pattern="^(google|mock)$")
+    session_secret: str = Field(default="dev-secret-change-me", min_length=1)
+    google_client_id: str = ""
+    google_client_secret: str = ""
+
+
 class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -61,6 +72,29 @@ class Settings(BaseModel):
     verify: Verify = Field(default_factory=Verify)
     writer: Writer = Field(default_factory=Writer)
     llm: LLM = Field(default_factory=LLM)
+    web: Web = Field(default_factory=Web)
+
+
+_WEB_ENV_VARS: dict[str, str] = {
+    "database_url": "DATABASE_URL",
+    "auth_mode": "AUTH_MODE",
+    "session_secret": "SESSION_SECRET",
+    "google_client_id": "GOOGLE_CLIENT_ID",
+    "google_client_secret": "GOOGLE_CLIENT_SECRET",
+}
+
+
+def load_web_settings(
+    settings: Settings | None = None, env: Mapping[str, str] | None = None
+) -> Web:
+    """Resolve web settings from YAML defaults with environment overrides."""
+    base = settings.web if settings is not None else Web()
+    overrides = {
+        name: value
+        for name, variable in _WEB_ENV_VARS.items()
+        if (value := (env or {}).get(variable)) is not None
+    }
+    return Web.model_validate({**base.model_dump(), **overrides})
 
 
 def load_settings(path: Path | str | None = None) -> Settings:

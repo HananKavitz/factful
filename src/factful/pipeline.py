@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Literal
@@ -22,6 +23,8 @@ from factful.style.schema import StyleProfile
 logger = logging.getLogger(__name__)
 
 Decision = Literal["publish", "patch", "stop"]
+
+DEFAULT_ANGLE = "explore the topic through key numbers and statistics"
 
 
 @dataclass(frozen=True)
@@ -83,7 +86,10 @@ def run_pipeline(
     max_sources: int | None = None,
     today: date | None = None,
     instructions: str | None = None,
+    on_progress: Callable[[str], None] | None = None,
 ) -> PipelineResult:
+    progress = on_progress or _noop_progress
+    progress("gathering sources")
     bundle = gather(
         topic,
         angle,
@@ -102,6 +108,7 @@ def run_pipeline(
     previous_critique = None
 
     for pass_ in range(1, settings.pipeline.max_passes + 1):
+        progress("writing draft")
         if state.pass_ == 1 or settings.pipeline.revision_mode == "regenerate":
             draft = write_article(
                 bundle,
@@ -128,6 +135,7 @@ def run_pipeline(
             )
             logger.info("pass %d: revised draft", pass_)
 
+        progress("fact-checking")
         for verdict in factcheck_article(
             draft,
             bundle.citations,
@@ -143,6 +151,7 @@ def run_pipeline(
             len(state.verdicts),
             state.critical_failures,
         )
+        progress("critiquing")
         report = critique(draft, client=clients.critic, settings=settings)
         state.add_critique(report)
         state.record_pass(score=report.score, draft=draft.markdown)
@@ -175,3 +184,7 @@ def run_pipeline(
         state.advance_pass()
 
     raise RuntimeError("convergence loop exceeded max_passes without deciding")
+
+
+def _noop_progress(stage: str) -> None:
+    return

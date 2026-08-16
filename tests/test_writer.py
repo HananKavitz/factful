@@ -1,7 +1,9 @@
 from datetime import UTC, date, datetime
 
 from factful.agents.writer import (
+    apply_user_edit,
     build_revision_prompt,
+    build_user_edit_prompt,
     build_writer_prompt,
     extract_referenced_claims,
     normalize_paragraphs,
@@ -365,3 +367,46 @@ def test_revise_article_forwards_instructions() -> None:
         instructions="Keep jargon minimal.",
     )
     assert "Keep jargon minimal." in client.calls[0][0]
+
+
+def test_build_user_edit_prompt_includes_markdown_instruction_and_profile() -> None:
+    prompt = build_user_edit_prompt(
+        "Chips are scarce.\n\nDemand is rising.", "Shorten the lead", profile()
+    )
+    assert "Chips are scarce." in prompt
+    assert "Shorten the lead" in prompt
+    assert "kevich" in prompt
+
+
+def test_build_user_edit_prompt_injects_today_date() -> None:
+    prompt = build_user_edit_prompt(
+        "Chips are scarce.",
+        "Add a closing line",
+        profile(),
+        today=date(2026, 8, 13),
+    )
+    assert "Today is 2026-08-13" in prompt
+
+
+def test_apply_user_edit_returns_draft_and_preserves_scope() -> None:
+    edited = Draft(title="Chips", markdown="Chips are scarce.\n\nDemand is rising sharply.")
+    client = FakeClient(edited)
+    result = apply_user_edit(
+        "Chips are scarce.\n\nDemand is rising.",
+        "Make demand sound sharper",
+        profile(),
+        client=client,
+    )
+    assert result == edited
+    assert client.calls[0][1] is Draft
+    prompt = client.calls[0][0]
+    assert "Chips are scarce." in prompt
+    assert "Make demand sound sharper" in prompt
+    assert "Change ONLY what the instruction asks for" in prompt
+
+
+def test_apply_user_edit_normalizes_collapsed_markdown() -> None:
+    collapsed = Draft(title="Chips", markdown="Fixed the lead. Fixed the middle. Fixed the end.")
+    client = FakeClient(collapsed)
+    result = apply_user_edit("Chips are scarce.", "Tighten the prose", profile(), client=client)
+    assert "\n\n" in result.markdown
