@@ -19,6 +19,7 @@ node_modules/
 # Environment / secrets
 .env
 .env.*
+!.env.example
 config/substack.toml
 *.local
 
