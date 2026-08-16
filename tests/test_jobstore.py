@@ -59,3 +59,32 @@ def test_set_story_id_marks_done() -> None:
     assert snapshot["status"] == "done"
     assert snapshot["story_id"] == 42
     assert snapshot["error"] is None
+
+
+def test_cancel_marks_record_cancelled() -> None:
+    record = JobRecord("j1")
+    record.set_status("running")
+    record.cancel()
+    snapshot = record.snapshot()
+    assert snapshot["status"] == "cancelled"
+    assert record.is_cancelled() is True
+
+
+def test_cancel_is_noop_after_completion() -> None:
+    record = JobRecord("j1")
+    record.set_status("running")
+    record.set_story_id(42)
+    record.cancel()
+    assert record.snapshot()["status"] == "done"
+    assert record.is_cancelled() is False
+
+
+def test_cancelled_record_ignores_story_completion() -> None:
+    record = JobRecord("j1")
+    record.set_status("running")
+    record.cancel()
+    record.set_stage("writing draft")
+    record.set_story_id(42)
+    snapshot = record.snapshot()
+    assert snapshot["status"] == "cancelled"
+    assert snapshot["story_id"] is None

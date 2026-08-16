@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 
 import pytest
@@ -178,6 +179,48 @@ def test_unknown_job_404(client: TestClient) -> None:
     assert client.get("/api/jobs/does-not-exist").status_code == 404
 
 
+def test_cancel_job_marks_cancelled(client: TestClient) -> None:
+    login(client)
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking_runner(record, request) -> None:
+        started.set()
+        release.wait(timeout=5)
+        record.set_stage("writing draft")
+        record.set_story_id(99)
+
+    client.app.state.generation_runner = blocking_runner
+    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+    assert started.wait(timeout=5)
+
+    response = client.post(f"/api/jobs/{job['job_id']}/cancel")
+    assert response.status_code == 200
+    assert response.json()["status"] == "cancelled"
+
+    release.set()
+    time.sleep(0.05)
+    assert client.get(f"/api/jobs/{job['job_id']}").json()["status"] == "cancelled"
+
+
+def test_cancel_job_requires_auth(client: TestClient) -> None:
+    assert client.post("/api/jobs/whatever/cancel").status_code == 401
+
+
+def test_cancel_job_is_owner_scoped(client: TestClient) -> None:
+    login(client)
+    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+
+    other = make_client()
+    login(other, email="bob@example.com")
+    assert other.post(f"/api/jobs/{job['job_id']}/cancel").status_code == 404
+
+
+def test_cancel_unknown_job_404(client: TestClient) -> None:
+    login(client)
+    assert client.post("/api/jobs/does-not-exist/cancel").status_code == 404
+
+
 def test_edit_story_applies_prompt(client: TestClient) -> None:
     login(client)
     job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
@@ -214,6 +257,35 @@ def test_edit_story_is_owner_scoped(client: TestClient) -> None:
     login(other, email="bob@example.com")
     response = other.post(f"/api/stories/{story_id}/edit", json={"prompt": "shorten"})
     assert response.status_code == 404
+
+
+def test_delete_story_removes_it(client: TestClient) -> None:
+    login(client)
+    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+    story_id = wait_for_job(client, job["job_id"])["story_id"]
+
+    assert client.delete(f"/api/stories/{story_id}").status_code == 204
+    assert client.get(f"/api/stories/{story_id}").status_code == 404
+
+
+def test_delete_story_is_owner_scoped(client: TestClient) -> None:
+    login(client)
+    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+    story_id = wait_for_job(client, job["job_id"])["story_id"]
+
+    other = make_client()
+    login(other, email="bob@example.com")
+    assert other.delete(f"/api/stories/{story_id}").status_code == 404
+    assert client.get(f"/api/stories/{story_id}").status_code == 200
+
+
+def test_delete_unknown_story_404(client: TestClient) -> None:
+    login(client)
+    assert client.delete("/api/stories/999").status_code == 404
+
+
+def test_delete_story_requires_auth(client: TestClient) -> None:
+    assert client.delete("/api/stories/1").status_code == 401
 
 
 def test_create_story_passes_user_style_profile(client: TestClient) -> None:

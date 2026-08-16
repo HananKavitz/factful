@@ -2,6 +2,7 @@ import { NavLink } from "react-router-dom";
 import { useAppDispatch, useAppSelector } from "../app/hooks";
 import { useLogoutMutation } from "../features/auth/authApi";
 import { clearUser } from "../features/auth/authSlice";
+import { useListStoriesQuery } from "../features/stories/storiesApi";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -12,10 +13,16 @@ const gearClass = ({ isActive }: { isActive: boolean }) =>
     ? "inline-flex h-9 w-9 items-center justify-center rounded-md bg-blush text-slate-900"
     : "inline-flex h-9 w-9 items-center justify-center rounded-md text-slate-500 hover:bg-blush/40 hover:text-slate-900";
 
+const storyClass = ({ isActive }: { isActive: boolean }) =>
+  isActive
+    ? "block truncate rounded-md bg-blush px-3 py-1.5 text-sm font-medium text-slate-900"
+    : "block truncate rounded-md px-3 py-1.5 text-sm text-slate-600 hover:bg-blush/40 hover:text-slate-900";
+
 export function Layout({ children }: LayoutProps) {
   const dispatch = useAppDispatch();
   const user = useAppSelector((state) => state.auth.user);
   const [logout] = useLogoutMutation();
+  const { data: stories } = useListStoriesQuery();
 
   const handleLogout = async () => {
     await logout();
@@ -33,6 +40,24 @@ export function Layout({ children }: LayoutProps) {
           >
             factful
           </NavLink>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
+          {stories && stories.length > 0 && (
+            <>
+              <p className="px-2 pb-1 text-xs font-medium uppercase tracking-wide text-slate-400">
+                Stories
+              </p>
+              <ul className="space-y-0.5">
+                {stories.map((story) => (
+                  <li key={story.id}>
+                    <NavLink to={`/stories/${story.id}`} className={storyClass}>
+                      {story.title}
+                    </NavLink>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </div>
         <footer className="mt-auto border-t border-slate-200 px-4 py-4">
           <div className="flex items-center justify-between">

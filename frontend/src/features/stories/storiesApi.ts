@@ -66,6 +66,13 @@ export const storiesApi = baseApi.injectEndpoints({
         { type: "Story", id: arg.id },
       ],
     }),
+    deleteStory: build.mutation<void, number>({
+      query: (id) => ({ url: `/stories/${id}`, method: "DELETE" }),
+      invalidatesTags: (_result, _error, id): StoryTag[] => [
+        { type: "Story", id },
+        { type: "Story", id: "LIST" },
+      ],
+    }),
   }),
 });
 
@@ -75,4 +82,5 @@ export const {
   useGetStoryQuery,
   useUpdateStoryMutation,
   useEditStoryMutation,
+  useDeleteStoryMutation,
 } = storiesApi;

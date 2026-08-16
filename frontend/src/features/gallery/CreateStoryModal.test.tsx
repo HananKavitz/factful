@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { useSyncExternalStore } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobStatus } from "../../types";
 import { CreateStoryModal } from "./CreateStoryModal";
 
@@ -24,6 +24,19 @@ const jobStore = vi.hoisted(() => {
   };
 });
 
+const jobs = vi.hoisted(() => ({
+  cancelJob: vi.fn(() => ({
+    unwrap: () =>
+      Promise.resolve({
+        job_id: "job-1",
+        status: "cancelled",
+        stage: null,
+        error: null,
+        story_id: null,
+      }),
+  })),
+}));
+
 const stories = vi.hoisted(() => ({
   createStory: vi.fn(() => ({
     unwrap: () => Promise.resolve({ job_id: "job-1" }),
@@ -34,6 +47,7 @@ vi.mock("../jobs/jobsApi", () => ({
   useGetJobQuery: () => ({
     data: useSyncExternalStore(jobStore.subscribe, jobStore.getJob),
   }),
+  useCancelJobMutation: () => [jobs.cancelJob, { isLoading: false }],
 }));
 
 vi.mock("../stories/storiesApi", () => ({
@@ -71,6 +85,11 @@ describe("CreateStoryModal", () => {
     stories.createStory.mockImplementation(() => ({
       unwrap: () => Promise.resolve({ job_id: "job-1" }),
     }));
+    jobs.cancelJob.mockClear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("submits the form and navigates to the story when the job completes", async () => {
@@ -205,5 +224,79 @@ describe("CreateStoryModal", () => {
 
     fireEvent.click(container.firstChild as Element);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows an elapsed clock while the job is running", async () => {
+    vi.useFakeTimers();
+    renderModal();
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. Chip demand in 2026"), {
+      target: { value: "Chips" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    await act(async () => {
+      vi.advanceTimersByTime(0);
+    });
+    act(() =>
+      jobStore.setJob({
+        job_id: "job-1",
+        status: "running",
+        stage: "research",
+        error: null,
+        story_id: null,
+      }),
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(screen.getByText("00:01")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(9000);
+    });
+    expect(screen.getByText("00:10")).toBeInTheDocument();
+  });
+
+  it("stops the run and closes the modal", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    renderModal(onClose);
+
+    await user.type(screen.getByPlaceholderText("e.g. Chip demand in 2026"), "Chips");
+    await user.click(screen.getByRole("button", { name: "Generate" }));
+    act(() =>
+      jobStore.setJob({
+        job_id: "job-1",
+        status: "running",
+        stage: "research",
+        error: null,
+        story_id: null,
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Stop" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(jobs.cancelJob).toHaveBeenCalledWith("job-1");
+  });
+
+  it("closes the modal when the job is cancelled", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    renderModal(onClose);
+
+    await user.type(screen.getByPlaceholderText("e.g. Chip demand in 2026"), "Chips");
+    await user.click(screen.getByRole("button", { name: "Generate" }));
+    act(() =>
+      jobStore.setJob({
+        job_id: "job-1",
+        status: "cancelled",
+        stage: null,
+        error: null,
+        story_id: null,
+      }),
+    );
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 });

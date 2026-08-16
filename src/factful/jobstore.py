@@ -6,7 +6,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Literal
 
-JobStatus = Literal["queued", "running", "done", "error"]
+JobStatus = Literal["queued", "running", "done", "error", "cancelled"]
 
 
 class JobRecord:
@@ -20,6 +20,7 @@ class JobRecord:
         self._stage: str | None = None
         self._error: str | None = None
         self._story_id: int | None = None
+        self._cancelled = threading.Event()
 
     @property
     def id(self) -> str:
@@ -44,8 +45,20 @@ class JobRecord:
 
     def set_story_id(self, story_id: int) -> None:
         with self._lock:
+            if self._status == "cancelled":
+                return
             self._status = "done"
             self._story_id = story_id
+
+    def cancel(self) -> None:
+        with self._lock:
+            if self._status in ("done", "error", "cancelled"):
+                return
+            self._cancelled.set()
+            self._status = "cancelled"
+
+    def is_cancelled(self) -> bool:
+        return self._cancelled.is_set()
 
     def snapshot(self) -> dict[str, str | int | None]:
         with self._lock:

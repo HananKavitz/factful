@@ -23,3 +23,17 @@ def get_job(
     if record is None or record.user_id != user.id:
         raise HTTPException(status_code=404, detail="job not found")
     return JobStatus.model_validate(record.snapshot())
+
+
+@router.post("/{job_id}/cancel", response_model=JobStatus)
+def cancel_job(
+    job_id: str,
+    request: Request,
+    user: Annotated[User, Depends(get_current_user)],
+) -> JobStatus:
+    job_store: JobStore = request.app.state.job_store
+    record = job_store.get(job_id)
+    if record is None or record.user_id != user.id:
+        raise HTTPException(status_code=404, detail="job not found")
+    record.cancel()
+    return JobStatus.model_validate(record.snapshot())

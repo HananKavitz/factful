@@ -8,11 +8,15 @@ const hooks = vi.hoisted(() => ({
   story: null as StoryDetail | null,
   saving: false,
   editing: false,
+  deleting: false,
   updateStory: vi.fn(() => ({
     unwrap: () => Promise.resolve(hooks.story),
   })),
   editStory: vi.fn(() => ({
     unwrap: () => Promise.resolve(hooks.story),
+  })),
+  deleteStory: vi.fn(() => ({
+    unwrap: () => Promise.resolve(undefined),
   })),
 }));
 
@@ -23,6 +27,7 @@ vi.mock("../stories/storiesApi", () => ({
   }),
   useUpdateStoryMutation: () => [hooks.updateStory, { isLoading: hooks.saving }],
   useEditStoryMutation: () => [hooks.editStory, { isLoading: hooks.editing }],
+  useDeleteStoryMutation: () => [hooks.deleteStory, { isLoading: hooks.deleting }],
 }));
 
 import { StoryEditor } from "./StoryEditor";
@@ -44,6 +49,7 @@ function renderEditor() {
     <MemoryRouter initialEntries={["/stories/1"]}>
       <Routes>
         <Route path="/stories/:storyId" element={<StoryEditor />} />
+        <Route path="/" element={<p>gallery page</p>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -54,8 +60,10 @@ describe("StoryEditor", () => {
     hooks.story = story;
     hooks.saving = false;
     hooks.editing = false;
+    hooks.deleting = false;
     hooks.updateStory.mockClear();
     hooks.editStory.mockClear();
+    hooks.deleteStory.mockClear();
   });
 
   afterEach(() => {
@@ -148,5 +156,32 @@ describe("StoryEditor", () => {
     const user = userEvent.setup();
     await user.clear(editor);
     expect(screen.getByText("0 words")).toBeInTheDocument();
+  });
+
+  it("opens a confirm dialog before deleting and cancels without deleting", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    expect(
+      screen.getByText("Delete this story?"),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(hooks.deleteStory).not.toHaveBeenCalled();
+    expect(screen.queryByText("Delete this story?")).not.toBeInTheDocument();
+  });
+
+  it("deletes the story and navigates to the gallery", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await user.click(screen.getByRole("button", { name: "Confirm delete" }));
+
+    await waitFor(() => {
+      expect(hooks.deleteStory).toHaveBeenCalledWith(1);
+    });
+    expect(await screen.findByText("gallery page")).toBeInTheDocument();
   });
 });

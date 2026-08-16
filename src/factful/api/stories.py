@@ -120,6 +120,20 @@ def edit_story(
         return _to_detail(story)
 
 
+@router.delete("/{story_id}", status_code=204)
+def delete_story(
+    story_id: int,
+    user: Annotated[User, Depends(get_current_user)],
+    sessions: Sessions,
+) -> None:
+    with sessions() as db:
+        story = _owned_story(db, story_id, user.id)
+        if story is None:
+            raise HTTPException(status_code=404, detail="story not found")
+        db.delete(story)
+        db.commit()
+
+
 def _profile_for(user_id: int, sessions: Sessions) -> StyleProfile | None:
     with sessions() as db:
         user = db.get(User, user_id)
