@@ -40,7 +40,7 @@ export function AuthGate({ children }: AuthGateProps) {
 
   if (isError) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+      <div className="flex min-h-screen items-center justify-center bg-white px-4">
         <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
           <h1 className="text-2xl font-bold text-slate-900">factful</h1>
           <p className="mt-2 text-sm text-slate-500">
@@ -64,7 +64,7 @@ export function AuthGate({ children }: AuthGateProps) {
               <button
                 type="submit"
                 disabled={loggingIn || !email.trim()}
-                className="w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                className="w-full rounded-md bg-blush px-4 py-2 text-sm font-medium text-slate-900 hover:bg-blush-dark disabled:opacity-50"
               >
                 Dev mock login
               </button>

@@ -21,7 +21,7 @@ export function Gallery() {
         <h1 className="text-xl font-semibold text-slate-900">Stories</h1>
         <button
           onClick={() => setOpen(true)}
-          className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+          className="rounded-md bg-blush px-4 py-2 text-sm font-medium text-slate-900 hover:bg-blush-dark"
         >
           Create new story
         </button>

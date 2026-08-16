@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+@theme {
+  --color-blush: #dc95ff;
+  --color-blush-dark: #c77dff;
+}
+
 body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  @apply bg-white text-slate-900 antialiased;
 }
