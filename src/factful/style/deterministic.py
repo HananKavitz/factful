@@ -101,3 +101,12 @@ def detect_openers(paragraphs: list[list[str]]) -> list[str]:
             else:
                 hooks.append("declarative")
     return hooks
+
+
+def opener_distribution(markdown: str) -> dict[str, int]:
+    body = "\n".join(line for line in markdown.splitlines() if not HEADING_RE.match(line))
+    paragraphs = _split_paragraphs(body)
+    counts: dict[str, int] = {}
+    for opener in detect_openers(paragraphs):
+        counts[opener] = counts.get(opener, 0) + 1
+    return counts

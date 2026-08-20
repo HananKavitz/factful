@@ -5,6 +5,7 @@ from factful.style.deterministic import (
     detect_sections,
     detect_transitions,
     extract_metrics,
+    opener_distribution,
 )
 
 
@@ -57,6 +58,15 @@ def test_sections_from_headings() -> None:
 def test_openers_detect_question() -> None:
     paragraphs = [["Why is it so?"], ["Meanwhile things changed."], ["It is fine."]]
     assert detect_openers(paragraphs) == ["question", "transition-opener", "declarative"]
+
+
+def test_opener_distribution_counts_opener_types() -> None:
+    md = "# T\n\nWhy is it so?\n\nMeanwhile things changed.\n\nIt is fine."
+    assert opener_distribution(md) == {
+        "question": 1,
+        "transition-opener": 1,
+        "declarative": 1,
+    }
 
 
 def test_numeric_density_counts_numbered_sentences() -> None:
