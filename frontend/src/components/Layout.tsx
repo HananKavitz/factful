@@ -30,18 +30,24 @@ export function Layout({ children }: LayoutProps) {
   };
 
   return (
-    <div className="flex min-h-screen bg-white">
-      <aside className="flex w-56 shrink-0 flex-col border-r border-slate-200 bg-white">
-        <div className="px-5 py-5">
-          <NavLink
-            to="/"
-            end
-            className="block text-lg font-bold text-slate-900 hover:text-blush-dark"
-          >
+    <div className="flex min-h-screen flex-col bg-white">
+      <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-5">
+        <NavLink
+          to="/"
+          end
+          className="text-2xl font-bold tracking-tight hover:opacity-80"
+        >
+          <span className="bg-gradient-to-r from-blush to-blush-dark bg-clip-text text-transparent">
             factful
-          </NavLink>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
+          </span>
+        </NavLink>
+        <span className="hidden text-xs font-medium uppercase tracking-widest text-slate-400 sm:block">
+          Fact-checked stories
+        </span>
+      </header>
+      <div className="flex flex-1">
+        <aside className="flex w-56 shrink-0 flex-col border-r border-slate-200 bg-white">
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
           {stories && stories.length > 0 && (
             <>
               <p className="px-2 pb-1 text-xs font-medium uppercase tracking-wide text-slate-400">
@@ -105,6 +111,7 @@ export function Layout({ children }: LayoutProps) {
         </footer>
       </aside>
       <main className="flex-1 px-6 py-6">{children}</main>
+      </div>
     </div>
   );
 }

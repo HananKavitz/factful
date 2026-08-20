@@ -71,12 +71,13 @@ describe("Layout", () => {
     });
   });
 
-  it("makes the factful brand a link to the gallery with no nav links", () => {
+  it("makes the factful brand a header link to the gallery with no nav links", () => {
     renderLayout(alice);
 
-    const sidebar = screen.getByRole("complementary");
-    const brand = within(sidebar).getByRole("link", { name: "factful" });
+    const header = screen.getByRole("banner");
+    const brand = within(header).getByRole("link", { name: "factful" });
     expect(brand).toHaveAttribute("href", "/");
+    const sidebar = screen.getByRole("complementary");
     expect(within(sidebar).queryByRole("link", { name: "Stories" })).not.toBeInTheDocument();
     expect(within(sidebar).queryByRole("navigation")).not.toBeInTheDocument();
   });
