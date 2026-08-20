@@ -116,15 +116,26 @@ describe("Settings", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.type(screen.getByPlaceholderText("e.g. My newsletter voice"), "my-voice");
     await user.type(screen.getByPlaceholderText(/Paste one or more/), "Sample body here.");
     await user.click(screen.getByRole("button", { name: "Analyze & save" }));
 
     expect(saveStyle).toHaveBeenCalledWith({
-      name: "my-voice",
       samples: "Sample body here.",
     });
     expect(await screen.findByText("my-voice")).toBeInTheDocument();
+  });
+
+  it("hides the analyze form once a style is set", () => {
+    getSettings.mockReturnValue({
+      data: { style: profile },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
+    renderPage();
+    expect(screen.getByText("my-voice")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove style" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Analyze & save" })).not.toBeInTheDocument();
   });
 
   it("shows an error when analysis fails", async () => {

@@ -67,7 +67,7 @@ def analyze_style(
         raise HTTPException(status_code=422, detail="samples must not be empty")
     extractor: StyleExtractor = request.app.state.style_extractor
     try:
-        profile = extractor([samples], body.name.strip() or "my style")
+        profile = extractor([samples], "my style")
     except (KeyError, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=502, detail=f"style analysis failed: {exc}") from exc
     with sessions() as db:

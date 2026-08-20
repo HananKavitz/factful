@@ -102,7 +102,6 @@ export function Settings() {
   const { data, isLoading } = useGetSettingsQuery();
   const [saveStyle, { isLoading: saving }] = useSaveStyleMutation();
   const [clearStyle, { isLoading: clearing }] = useClearStyleMutation();
-  const [name, setName] = useState("");
   const [samples, setSamples] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [analyzed, setAnalyzed] = useState<StyleProfile | null>(null);
@@ -113,12 +112,8 @@ export function Settings() {
     event.preventDefault();
     setError(null);
     try {
-      const result = await saveStyle({
-        name: name.trim() || "My style",
-        samples: samples.trim(),
-      }).unwrap();
+      const result = await saveStyle({ samples: samples.trim() }).unwrap();
       setAnalyzed(result.style);
-      setName("");
       setSamples("");
     } catch {
       setError("Could not analyze your writing style. Please try again.");
@@ -170,41 +165,34 @@ export function Settings() {
         )}
       </section>
 
-      <section className="mt-8">
-        <h2 className="text-base font-semibold text-slate-800">Analyze a new style</h2>
-        <form onSubmit={handleAnalyze} className="mt-3 space-y-4">
-          <label className="block">
-            <span className="text-base font-medium text-slate-700">Style name</span>
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="e.g. My newsletter voice"
-              className="mt-1 w-full rounded-md border border-slate-300 px-4 py-3 text-base"
-            />
-          </label>
-          <label className="block">
-            <span className="text-base font-medium text-slate-700">Sample articles</span>
-            <textarea
-              value={samples}
-              onChange={(event) => setSamples(event.target.value)}
-              rows={8}
-              placeholder="Paste one or more of your published articles here…"
-              className="mt-1 w-full rounded-md border border-slate-300 px-4 py-3 text-base"
-              required
-            />
-          </label>
-          {error && <p className="text-base text-red-600">{error}</p>}
-          <div className="flex justify-end pt-1">
-            <button
-              type="submit"
-              disabled={saving || !samples.trim()}
-              className="rounded-md bg-blush px-5 py-2.5 text-base font-medium text-slate-900 hover:bg-blush-dark disabled:opacity-50"
-            >
-              {saving ? "Analyzing…" : "Analyze & save"}
-            </button>
-          </div>
-        </form>
-      </section>
+      {!style && (
+        <section className="mt-8">
+          <h2 className="text-base font-semibold text-slate-800">Analyze a new style</h2>
+          <form onSubmit={handleAnalyze} className="mt-3 space-y-4">
+            <label className="block">
+              <span className="text-base font-medium text-slate-700">Sample articles</span>
+              <textarea
+                value={samples}
+                onChange={(event) => setSamples(event.target.value)}
+                rows={8}
+                placeholder="Paste one or more of your published articles here…"
+                className="mt-1 w-full rounded-md border border-slate-300 px-4 py-3 text-base"
+                required
+              />
+            </label>
+            {error && <p className="text-base text-red-600">{error}</p>}
+            <div className="flex justify-end pt-1">
+              <button
+                type="submit"
+                disabled={saving || !samples.trim()}
+                className="rounded-md bg-blush px-5 py-2.5 text-base font-medium text-slate-900 hover:bg-blush-dark disabled:opacity-50"
+              >
+                {saving ? "Analyzing…" : "Analyze & save"}
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
     </div>
   );
 }

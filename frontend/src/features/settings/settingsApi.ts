@@ -2,7 +2,6 @@ import { baseApi } from "../../app/api";
 import type { Settings } from "../../types";
 
 export interface SaveStyleRequest {
-  name: string;
   samples: string;
 }
 

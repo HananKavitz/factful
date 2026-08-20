@@ -54,27 +54,25 @@ def test_get_settings_returns_null_when_unset(client: TestClient) -> None:
 
 def test_analyze_and_save_persists_profile(client: TestClient) -> None:
     login(client)
-    response = client.post(
-        "/api/settings/style", json={"name": "my-voice", "samples": "Sample body here."}
-    )
+    response = client.post("/api/settings/style", json={"samples": "Sample body here."})
     assert response.status_code == 200
     body = response.json()
-    assert body["style"]["name"] == "my-voice"
+    assert body["style"]["name"] == "my style"
     assert body["style"]["extraction"]["voice"] == "wry"
 
     fetched = client.get("/api/settings")
-    assert fetched.json()["style"]["name"] == "my-voice"
+    assert fetched.json()["style"]["name"] == "my style"
 
 
 def test_analyze_requires_valid_body(client: TestClient) -> None:
     login(client)
-    assert client.post("/api/settings/style", json={"name": "", "samples": "x"}).status_code == 422
-    assert client.post("/api/settings/style", json={"name": "n", "samples": ""}).status_code == 422
+    assert client.post("/api/settings/style", json={}).status_code == 422
+    assert client.post("/api/settings/style", json={"samples": ""}).status_code == 422
 
 
 def test_clear_style_removes_profile(client: TestClient) -> None:
     login(client)
-    client.post("/api/settings/style", json={"name": "my-voice", "samples": "Sample body here."})
+    client.post("/api/settings/style", json={"samples": "Sample body here."})
     response = client.delete("/api/settings/style")
     assert response.status_code == 204
     assert client.get("/api/settings").json()["style"] is None
@@ -87,7 +85,7 @@ def test_analyze_propagates_extractor_failure(client: TestClient) -> None:
         raise RuntimeError("LLM down")
 
     client.app.state.style_extractor = boom
-    response = client.post("/api/settings/style", json={"name": "n", "samples": "x"})
+    response = client.post("/api/settings/style", json={"samples": "x"})
     assert response.status_code == 502
     assert "LLM down" in response.json()["detail"]
 

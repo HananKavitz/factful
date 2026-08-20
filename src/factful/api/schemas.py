@@ -57,7 +57,6 @@ class EditStoryRequest(BaseModel):
 
 
 class UpdateStyleRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=64)
     samples: str = Field(min_length=1, max_length=40000)
 
 
