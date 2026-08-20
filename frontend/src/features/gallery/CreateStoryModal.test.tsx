@@ -1,8 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { configureStore } from "@reduxjs/toolkit";
 import userEvent from "@testing-library/user-event";
 import { useSyncExternalStore } from "react";
+import { Provider } from "react-redux";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { baseApi } from "../../app/api";
 import type { JobStatus } from "../../types";
 import { CreateStoryModal } from "./CreateStoryModal";
 
@@ -59,25 +62,46 @@ function LocationProbe() {
   return <p>path={location.pathname}</p>;
 }
 
+function makeStore() {
+  const dispatched: unknown[] = [];
+  const store = configureStore({
+    reducer: { [baseApi.reducerPath]: baseApi.reducer },
+    middleware: (getDefaultMiddleware) =>
+      getDefaultMiddleware().concat(
+        baseApi.middleware,
+        () =>
+          (next: (action: unknown) => unknown) =>
+          (action: unknown) => {
+            dispatched.push(action);
+            return next(action);
+          },
+      ),
+  });
+  return { store, dispatched };
+}
+
 function renderModal(
   onClose = () => undefined,
   initialValues?: { topic: string; angle: string | null; instructions: string | null },
+  store = makeStore().store,
 ) {
   return render(
-    <MemoryRouter initialEntries={["/"]}>
-      <Routes>
-        <Route
-          path="/"
-          element={
-            <>
-              <CreateStoryModal onClose={onClose} initialValues={initialValues} />
-              <LocationProbe />
-            </>
-          }
-        />
-        <Route path="/stories/:id" element={<LocationProbe />} />
-      </Routes>
-    </MemoryRouter>,
+    <Provider store={store}>
+      <MemoryRouter initialEntries={["/"]}>
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <>
+                <CreateStoryModal onClose={onClose} initialValues={initialValues} />
+                <LocationProbe />
+              </>
+            }
+          />
+          <Route path="/stories/:id" element={<LocationProbe />} />
+        </Routes>
+      </MemoryRouter>
+    </Provider>,
   );
 }
 
@@ -129,6 +153,39 @@ describe("CreateStoryModal", () => {
       }),
     );
     expect(await screen.findByText("path=/stories/1")).toBeInTheDocument();
+  });
+
+  it("invalidates the story list when the job completes", async () => {
+    const { store, dispatched } = makeStore();
+    const user = userEvent.setup();
+    renderModal(undefined, undefined, store);
+
+    await user.type(screen.getByPlaceholderText("e.g. Chip demand in 2026"), "Chips");
+    await user.click(screen.getByRole("button", { name: "Generate" }));
+
+    act(() =>
+      jobStore.setJob({
+        job_id: "job-1",
+        status: "done",
+        stage: "publish",
+        error: null,
+        story_id: 1,
+      }),
+    );
+    expect(await screen.findByText("path=/stories/1")).toBeInTheDocument();
+
+    await waitFor(() =>
+      expect(dispatched).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "api/invalidateTags",
+            payload: expect.arrayContaining([
+              expect.objectContaining({ type: "Story", id: "LIST" }),
+            ]),
+          }),
+        ]),
+      ),
+    );
   });
 
   it("shows the stage while the job is running", async () => {

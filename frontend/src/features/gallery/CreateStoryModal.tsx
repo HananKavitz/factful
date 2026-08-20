@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { baseApi } from "../../app/api";
+import { useAppDispatch } from "../../app/hooks";
 import { useCancelJobMutation, useGetJobQuery } from "../jobs/jobsApi";
 import { useCreateStoryMutation } from "../stories/storiesApi";
 
@@ -32,6 +34,7 @@ export function CreateStoryModal({ onClose, initialValues }: CreateStoryModalPro
     pollingInterval: 1500,
   });
   const navigate = useNavigate();
+  const dispatch = useAppDispatch();
   const topicRef = useRef<HTMLTextAreaElement>(null);
   const mouseDownTarget = useRef<EventTarget | null>(null);
 
@@ -58,9 +61,10 @@ export function CreateStoryModal({ onClose, initialValues }: CreateStoryModalPro
 
   useEffect(() => {
     if (job?.status === "done" && job.story_id != null) {
+      dispatch(baseApi.util.invalidateTags([{ type: "Story", id: "LIST" }]));
       navigate(`/stories/${job.story_id}`, { replace: true });
     }
-  }, [job, navigate]);
+  }, [job, dispatch, navigate]);
 
   useEffect(() => {
     if (job?.status === "cancelled") {

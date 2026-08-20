@@ -1,7 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { configureStore } from "@reduxjs/toolkit";
 import userEvent from "@testing-library/user-event";
+import { Provider } from "react-redux";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { baseApi } from "../../app/api";
 import type { StoryDetail } from "../../types";
 
 const hooks = vi.hoisted(() => ({
@@ -57,13 +60,20 @@ const story: StoryDetail = {
 };
 
 function renderEditor() {
+  const store = configureStore({
+    reducer: { [baseApi.reducerPath]: baseApi.reducer },
+    middleware: (getDefaultMiddleware) =>
+      getDefaultMiddleware().concat(baseApi.middleware),
+  });
   return render(
-    <MemoryRouter initialEntries={["/stories/1"]}>
-      <Routes>
-        <Route path="/stories/:storyId" element={<StoryEditor />} />
-        <Route path="/" element={<p>gallery page</p>} />
-      </Routes>
-    </MemoryRouter>,
+    <Provider store={store}>
+      <MemoryRouter initialEntries={["/stories/1"]}>
+        <Routes>
+          <Route path="/stories/:storyId" element={<StoryEditor />} />
+          <Route path="/" element={<p>gallery page</p>} />
+        </Routes>
+      </MemoryRouter>
+    </Provider>,
   );
 }
 
