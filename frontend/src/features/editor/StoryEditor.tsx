@@ -100,8 +100,8 @@ function EditorForm({ story }: EditorFormProps) {
   const wordCount = markdown.trim() ? markdown.trim().split(/\s+/).length : 0;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
+    <div className="flex h-full flex-col space-y-4">
+      <div className="flex shrink-0 items-center justify-between">
         <h1 className="text-xl font-semibold text-slate-900">{story.topic}</h1>
         <div className="flex items-center gap-3">
           <span className="text-xs text-slate-400">
@@ -172,16 +172,15 @@ function EditorForm({ story }: EditorFormProps) {
         value={title}
         onChange={(event) => setTitle(event.target.value)}
         placeholder="Title"
-        className={inputClass}
+        className={`${inputClass} shrink-0`}
       />
 
       <textarea
         value={markdown}
         onChange={(event) => setMarkdown(event.target.value)}
-        rows={24}
-        className={`${inputClass} font-mono text-xs leading-relaxed`}
+        className={`${inputClass} min-h-0 flex-1 resize-none font-mono text-xs leading-relaxed`}
       />
-      <div className="-mt-3 flex justify-end">
+      <div className="-mt-3 flex shrink-0 justify-end">
         <span className="text-xs text-slate-400">
           {wordCount} {wordCount === 1 ? "word" : "words"}
         </span>
@@ -189,7 +188,7 @@ function EditorForm({ story }: EditorFormProps) {
 
       <form
         onSubmit={handlePromptEdit}
-        className="rounded-lg border border-slate-200 bg-white p-4"
+        className="shrink-0 rounded-lg border border-slate-200 bg-white p-4"
       >
         <label className="block">
           <span className="text-sm font-medium text-slate-700">

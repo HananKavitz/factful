@@ -30,7 +30,7 @@ export function Layout({ children }: LayoutProps) {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-white">
+    <div className="flex h-screen flex-col overflow-hidden bg-white">
       <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-5">
         <NavLink
           to="/"
@@ -110,7 +110,7 @@ export function Layout({ children }: LayoutProps) {
           </div>
         </footer>
       </aside>
-      <main className="flex-1 px-6 py-6">{children}</main>
+      <main className="flex-1 overflow-y-auto px-6 py-6">{children}</main>
       </div>
     </div>
   );
