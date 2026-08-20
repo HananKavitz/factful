@@ -142,6 +142,13 @@ describe("StoryEditor", () => {
     ).toBe("");
   });
 
+  it("shows a spinner on the edit button while an edit is in flight", () => {
+    hooks.editing = true;
+    const { container } = renderEditor();
+    expect(screen.getByText("Editing…")).toBeInTheDocument();
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
+  });
+
   it("does not submit an empty prompt", () => {
     renderEditor();
     const button = screen.getByRole("button", { name: "Apply edit" });
