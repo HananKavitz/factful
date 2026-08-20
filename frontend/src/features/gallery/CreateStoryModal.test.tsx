@@ -222,8 +222,32 @@ describe("CreateStoryModal", () => {
     const onClose = vi.fn();
     const { container } = renderModal(onClose);
 
+    fireEvent.mouseDown(container.firstChild as Element);
     fireEvent.click(container.firstChild as Element);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not close when selecting text in the topic input and releasing on the backdrop", () => {
+    const onClose = vi.fn();
+    const { container } = renderModal(onClose);
+    const backdrop = container.firstChild as Element;
+    const textarea = screen.getByPlaceholderText("e.g. Chip demand in 2026");
+
+    fireEvent.mouseDown(textarea);
+    fireEvent.mouseUp(backdrop);
+    fireEvent.click(backdrop);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("keeps the modal open while pasting into the topic input", () => {
+    const onClose = vi.fn();
+    renderModal(onClose);
+
+    const textarea = screen.getByPlaceholderText("e.g. Chip demand in 2026");
+    fireEvent.change(textarea, { target: { value: "Chip demand in 2026" } });
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(textarea).toHaveValue("Chip demand in 2026");
   });
 
   it("shows an elapsed clock while the job is running", async () => {

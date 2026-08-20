@@ -28,6 +28,7 @@ export function CreateStoryModal({ onClose }: CreateStoryModalProps) {
   });
   const navigate = useNavigate();
   const topicRef = useRef<HTMLTextAreaElement>(null);
+  const mouseDownTarget = useRef<EventTarget | null>(null);
 
   const running =
     jobId !== null &&
@@ -103,12 +104,17 @@ export function CreateStoryModal({ onClose }: CreateStoryModalProps) {
   return (
     <div
       className="fixed inset-0 z-10 flex items-center justify-center bg-slate-900/40 px-4"
-      onClick={() => {
-        if (!running) onClose();
+      onMouseDown={(event) => {
+        mouseDownTarget.current = event.target;
+      }}
+      onClick={(event) => {
+        if (running) return;
+        if (mouseDownTarget.current === event.currentTarget) onClose();
+        mouseDownTarget.current = null;
       }}
     >
       <div
-        className="w-full max-w-xl rounded-lg bg-white p-8 shadow-xl"
+        className="w-full max-w-4xl rounded-lg bg-white p-8 shadow-xl"
         onClick={(event) => event.stopPropagation()}
       >
         <h2 className="text-xl font-semibold text-slate-900">
