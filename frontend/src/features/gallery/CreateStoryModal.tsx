@@ -5,6 +5,11 @@ import { useCreateStoryMutation } from "../stories/storiesApi";
 
 interface CreateStoryModalProps {
   onClose: () => void;
+  initialValues?: {
+    topic: string;
+    angle: string | null;
+    instructions: string | null;
+  };
 }
 
 function formatElapsed(seconds: number): string {
@@ -13,10 +18,10 @@ function formatElapsed(seconds: number): string {
   return `${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
 }
 
-export function CreateStoryModal({ onClose }: CreateStoryModalProps) {
-  const [topic, setTopic] = useState("");
-  const [angle, setAngle] = useState("");
-  const [instructions, setInstructions] = useState("");
+export function CreateStoryModal({ onClose, initialValues }: CreateStoryModalProps) {
+  const [topic, setTopic] = useState(initialValues?.topic ?? "");
+  const [angle, setAngle] = useState(initialValues?.angle ?? "");
+  const [instructions, setInstructions] = useState(initialValues?.instructions ?? "");
   const [jobId, setJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -29,6 +34,8 @@ export function CreateStoryModal({ onClose }: CreateStoryModalProps) {
   const navigate = useNavigate();
   const topicRef = useRef<HTMLTextAreaElement>(null);
   const mouseDownTarget = useRef<EventTarget | null>(null);
+
+  const isRegenerate = initialValues !== undefined;
 
   const running =
     jobId !== null &&
@@ -118,7 +125,11 @@ export function CreateStoryModal({ onClose }: CreateStoryModalProps) {
         onClick={(event) => event.stopPropagation()}
       >
         <h2 className="text-xl font-semibold text-slate-900">
-          {running ? "Generating story" : "Create a new story"}
+          {running
+            ? "Generating story"
+            : isRegenerate
+              ? "Regenerate story"
+              : "Create a new story"}
         </h2>
 
         {running ? (

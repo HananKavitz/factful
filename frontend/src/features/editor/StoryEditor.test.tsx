@@ -18,6 +18,12 @@ const hooks = vi.hoisted(() => ({
   deleteStory: vi.fn(() => ({
     unwrap: () => Promise.resolve(undefined),
   })),
+  createStory: vi.fn(() => ({
+    unwrap: () => Promise.resolve({ job_id: "job-1" }),
+  })),
+  cancelJob: vi.fn(() => ({
+    unwrap: () => Promise.resolve(undefined),
+  })),
 }));
 
 vi.mock("../stories/storiesApi", () => ({
@@ -28,6 +34,12 @@ vi.mock("../stories/storiesApi", () => ({
   useUpdateStoryMutation: () => [hooks.updateStory, { isLoading: hooks.saving }],
   useEditStoryMutation: () => [hooks.editStory, { isLoading: hooks.editing }],
   useDeleteStoryMutation: () => [hooks.deleteStory, { isLoading: hooks.deleting }],
+  useCreateStoryMutation: () => [hooks.createStory, { isLoading: false }],
+}));
+
+vi.mock("../jobs/jobsApi", () => ({
+  useGetJobQuery: () => ({ data: undefined }),
+  useCancelJobMutation: () => [hooks.cancelJob, { isLoading: false }],
 }));
 
 import { StoryEditor } from "./StoryEditor";
@@ -190,5 +202,43 @@ describe("StoryEditor", () => {
       expect(hooks.deleteStory).toHaveBeenCalledWith(1);
     });
     expect(await screen.findByText("gallery page")).toBeInTheDocument();
+  });
+
+  it("opens the regenerate modal pre-filled with the story's saved prompts", async () => {
+    hooks.story = {
+      ...story,
+      angle: "key numbers",
+      instructions: "Keep it under 800 words.",
+    };
+    const user = userEvent.setup();
+    renderEditor();
+
+    await user.click(screen.getByRole("button", { name: "Regenerate" }));
+
+    expect(
+      screen.getByRole("heading", { name: "Regenerate story" }),
+    ).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("e.g. Chip demand in 2026")).toHaveValue(
+      "Semiconductors",
+    );
+    expect(screen.getByPlaceholderText("e.g. key numbers and statistics")).toHaveValue(
+      "key numbers",
+    );
+    expect(screen.getByDisplayValue("Keep it under 800 words.")).toBeInTheDocument();
+  });
+
+  it("closes the regenerate modal when cancelled", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    await user.click(screen.getByRole("button", { name: "Regenerate" }));
+    expect(
+      screen.getByRole("heading", { name: "Regenerate story" }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(
+      screen.queryByRole("heading", { name: "Regenerate story" }),
+    ).not.toBeInTheDocument();
   });
 });

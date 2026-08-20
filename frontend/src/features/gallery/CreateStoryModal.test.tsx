@@ -59,7 +59,10 @@ function LocationProbe() {
   return <p>path={location.pathname}</p>;
 }
 
-function renderModal(onClose = () => undefined) {
+function renderModal(
+  onClose = () => undefined,
+  initialValues?: { topic: string; angle: string | null; instructions: string | null },
+) {
   return render(
     <MemoryRouter initialEntries={["/"]}>
       <Routes>
@@ -67,7 +70,7 @@ function renderModal(onClose = () => undefined) {
           path="/"
           element={
             <>
-              <CreateStoryModal onClose={onClose} />
+              <CreateStoryModal onClose={onClose} initialValues={initialValues} />
               <LocationProbe />
             </>
           }
@@ -322,5 +325,61 @@ describe("CreateStoryModal", () => {
     );
 
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it("pre-fills the form and shows the regenerate heading when initialValues are provided", () => {
+    renderModal(undefined, {
+      topic: "Chip demand in 2026",
+      angle: "key numbers and statistics",
+      instructions: "Keep it under 800 words.",
+    });
+
+    expect(
+      screen.getByRole("heading", { name: "Regenerate story" }),
+    ).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("e.g. Chip demand in 2026")).toHaveValue(
+      "Chip demand in 2026",
+    );
+    expect(screen.getByPlaceholderText("e.g. key numbers and statistics")).toHaveValue(
+      "key numbers and statistics",
+    );
+    expect(screen.getByDisplayValue("Keep it under 800 words.")).toBeInTheDocument();
+  });
+
+  it("submits the pre-filled values unchanged when untouched", async () => {
+    const user = userEvent.setup();
+    renderModal(undefined, {
+      topic: "Chip demand in 2026",
+      angle: "key numbers and statistics",
+      instructions: "Keep it under 800 words.",
+    });
+
+    await user.click(screen.getByRole("button", { name: "Generate" }));
+
+    expect(stories.createStory).toHaveBeenCalledWith({
+      topic: "Chip demand in 2026",
+      angle: "key numbers and statistics",
+      instructions: "Keep it under 800 words.",
+    });
+  });
+
+  it("submits the edited value when a pre-filled field is changed", async () => {
+    const user = userEvent.setup();
+    renderModal(undefined, {
+      topic: "Chip demand in 2026",
+      angle: "key numbers and statistics",
+      instructions: null,
+    });
+
+    const topic = screen.getByPlaceholderText("e.g. Chip demand in 2026");
+    await user.clear(topic);
+    await user.type(topic, "AI chip demand");
+    await user.click(screen.getByRole("button", { name: "Generate" }));
+
+    expect(stories.createStory).toHaveBeenCalledWith({
+      topic: "AI chip demand",
+      angle: "key numbers and statistics",
+      instructions: null,
+    });
   });
 });

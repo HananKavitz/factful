@@ -6,6 +6,7 @@ import {
   useGetStoryQuery,
   useUpdateStoryMutation,
 } from "../stories/storiesApi";
+import { CreateStoryModal } from "../gallery/CreateStoryModal";
 import type { StoryDetail } from "../../types";
 
 const SAVE_DELAY_MS = 800;
@@ -55,6 +56,7 @@ function EditorForm({ story }: EditorFormProps) {
   const [prompt, setPrompt] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [regenerateOpen, setRegenerateOpen] = useState(false);
 
   const debouncedTitle = useDebouncedValue(title, SAVE_DELAY_MS);
   const debouncedMarkdown = useDebouncedValue(markdown, SAVE_DELAY_MS);
@@ -106,6 +108,12 @@ function EditorForm({ story }: EditorFormProps) {
             {saving ? "Saving…" : saveError ?? "Saved"}
           </span>
           <button
+            onClick={() => setRegenerateOpen(true)}
+            className="rounded-md bg-blush px-4 py-2 text-sm font-medium text-slate-900 hover:bg-blush-dark"
+          >
+            Regenerate
+          </button>
+          <button
             onClick={() => setConfirmOpen(true)}
             className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
           >
@@ -113,6 +121,17 @@ function EditorForm({ story }: EditorFormProps) {
           </button>
         </div>
       </div>
+
+      {regenerateOpen && (
+        <CreateStoryModal
+          initialValues={{
+            topic: story.topic,
+            angle: story.angle,
+            instructions: story.instructions,
+          }}
+          onClose={() => setRegenerateOpen(false)}
+        />
+      )}
 
       {confirmOpen && (
         <div
