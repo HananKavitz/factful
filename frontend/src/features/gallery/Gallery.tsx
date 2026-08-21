@@ -48,18 +48,18 @@ export function Gallery() {
 
       <ul className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {stories?.map((story) => (
-          <li key={story.id}>
+          <li key={story.id} className="h-full">
             <Link
               to={`/stories/${story.id}`}
-              className="block rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300"
+              className="flex h-full flex-col rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
             >
-              <div className="flex items-center justify-between">
-                <span className="font-medium text-slate-900">{story.title}</span>
-                <span className="text-xs text-slate-400">
+              <div className="flex items-start justify-between gap-2">
+                <div className="line-clamp-3 font-medium text-slate-900">{story.title}</div>
+                <span className="text-xs text-slate-400 whitespace-nowrap">
                   {formatDate(story.created_at)}
                 </span>
               </div>
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-slate-500 truncate">
                 {story.topic}
                 {story.score != null && ` · score ${Math.round(story.score)}`}
               </p>
