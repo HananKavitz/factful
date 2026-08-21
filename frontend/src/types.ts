@@ -13,6 +13,7 @@ export interface JobStatus {
   stage: string | null;
   error: string | null;
   story_id: number | null;
+  progress: number | null;
 }
 
 export interface StorySummary {

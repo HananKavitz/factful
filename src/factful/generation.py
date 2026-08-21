@@ -12,6 +12,7 @@ from factful.agents.writer import strip_claim_tags
 from factful.jobstore import JobRecord
 from factful.models import Story
 from factful.pipeline import DEFAULT_ANGLE, run_pipeline
+from factful.progress import ProgressTracker
 from factful.report import serialize_report
 from factful.runtime import build_runtime
 from factful.style.neutral import neutral_profile
@@ -55,7 +56,7 @@ def run_generation(
 ) -> None:
     runtime = build_runtime(dict(env))
     angle = request.angle or DEFAULT_ANGLE
-    progress = _cancellable_progress(record)
+    progress = _cancellable_progress(record, runtime.settings.pipeline.max_passes)
     try:
         result = run_pipeline(
             request.topic,
@@ -99,10 +100,13 @@ def build_generation_runner(
     return run
 
 
-def _cancellable_progress(record: JobRecord) -> Callable[[str], None]:
+def _cancellable_progress(record: JobRecord, max_passes: int) -> Callable[[str], None]:
+    tracker = ProgressTracker(max_passes=max_passes, on_mark=record.set_progress)
+
     def set_stage(stage: str) -> None:
         if record.is_cancelled():
             raise PipelineCancelledError()
+        tracker.mark()
         record.set_stage(stage)
 
     return set_stage

@@ -70,3 +70,4 @@ class JobStatus(BaseModel):
     stage: str | None = None
     error: str | None = None
     story_id: int | None = None
+    progress: int | None = None

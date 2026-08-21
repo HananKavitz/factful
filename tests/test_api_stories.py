@@ -111,6 +111,7 @@ def test_create_story_kicks_off_job(client: TestClient) -> None:
     done = wait_for_job(client, body["job_id"])
     assert done["status"] == "done"
     assert done["story_id"] is not None
+    assert done["progress"] == 100
 
     story = client.get(f"/api/stories/{done['story_id']}").json()
     assert story["topic"] == "Chip demand"

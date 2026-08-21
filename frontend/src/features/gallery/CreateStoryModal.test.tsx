@@ -36,13 +36,22 @@ const jobs = vi.hoisted(() => ({
         stage: null,
         error: null,
         story_id: null,
+        progress: null,
       }),
   })),
 }));
 
 const stories = vi.hoisted(() => ({
   createStory: vi.fn(() => ({
-    unwrap: () => Promise.resolve({ job_id: "job-1" }),
+    unwrap: () =>
+      Promise.resolve({
+        job_id: "job-1",
+        status: "queued",
+        stage: null,
+        error: null,
+        story_id: null,
+        progress: null,
+      }),
   })),
 }));
 
@@ -110,7 +119,15 @@ describe("CreateStoryModal", () => {
     jobStore.setJob(null);
     stories.createStory.mockReset();
     stories.createStory.mockImplementation(() => ({
-      unwrap: () => Promise.resolve({ job_id: "job-1" }),
+      unwrap: () =>
+        Promise.resolve({
+          job_id: "job-1",
+          status: "queued",
+          stage: null,
+          error: null,
+          story_id: null,
+          progress: null,
+        }),
     }));
     jobs.cancelJob.mockClear();
   });
@@ -139,6 +156,7 @@ describe("CreateStoryModal", () => {
         stage: "research",
         error: null,
         story_id: null,
+        progress: null,
       }),
     );
     expect(await screen.findByText("Generating story")).toBeInTheDocument();
@@ -150,6 +168,7 @@ describe("CreateStoryModal", () => {
         stage: "publish",
         error: null,
         story_id: 1,
+        progress: null,
       }),
     );
     expect(await screen.findByText("path=/stories/1")).toBeInTheDocument();
@@ -170,6 +189,7 @@ describe("CreateStoryModal", () => {
         stage: "publish",
         error: null,
         story_id: 1,
+        progress: null,
       }),
     );
     expect(await screen.findByText("path=/stories/1")).toBeInTheDocument();
@@ -202,9 +222,31 @@ describe("CreateStoryModal", () => {
         stage: "writing",
         error: null,
         story_id: null,
+        progress: null,
       }),
     );
     expect(await screen.findByText("writing…")).toBeInTheDocument();
+  });
+
+  it("shows a determinate progress bar when progress is reported", async () => {
+    const user = userEvent.setup();
+    renderModal();
+
+    await user.type(screen.getByPlaceholderText("e.g. Chip demand in 2026"), "Chips");
+    await user.click(screen.getByRole("button", { name: "Generate" }));
+
+    act(() =>
+      jobStore.setJob({
+        job_id: "job-1",
+        status: "running",
+        stage: "fact-checking",
+        error: null,
+        story_id: null,
+        progress: 57,
+      }),
+    );
+    const bar = screen.getByRole("progressbar");
+    expect(bar.getAttribute("aria-valuenow")).toBe("57");
   });
 
   it("shows the error from a failed job", async () => {
@@ -221,6 +263,7 @@ describe("CreateStoryModal", () => {
         stage: null,
         error: "LLM provider timed out",
         story_id: null,
+        progress: null,
       }),
     );
     expect(await screen.findByText("LLM provider timed out")).toBeInTheDocument();
@@ -270,6 +313,7 @@ describe("CreateStoryModal", () => {
         stage: "research",
         error: null,
         story_id: null,
+        progress: null,
       }),
     );
 
@@ -328,6 +372,7 @@ describe("CreateStoryModal", () => {
         stage: "research",
         error: null,
         story_id: null,
+        progress: null,
       }),
     );
 
@@ -356,6 +401,7 @@ describe("CreateStoryModal", () => {
         stage: "research",
         error: null,
         story_id: null,
+        progress: null,
       }),
     );
 
@@ -378,6 +424,7 @@ describe("CreateStoryModal", () => {
         stage: null,
         error: null,
         story_id: null,
+        progress: null,
       }),
     );
 

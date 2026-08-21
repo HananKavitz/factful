@@ -148,7 +148,23 @@ export function CreateStoryModal({ onClose, initialValues }: CreateStoryModalPro
                 <span className="tabular-nums">{formatElapsed(elapsed)}</span>
               </span>
             </div>
-            <div className="h-2 w-full animate-pulse rounded-full bg-slate-200" />
+            {job?.progress != null ? (
+              <div
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={job.progress}
+                aria-label="generation progress"
+                className="h-2 w-full rounded-full bg-slate-200"
+              >
+                <div
+                  className="h-2 rounded-full bg-blush transition-[width] duration-500"
+                  style={{ width: `${job.progress}%` }}
+                />
+              </div>
+            ) : (
+              <div className="h-2 w-full animate-pulse rounded-full bg-slate-200" />
+            )}
             {error && <p className="text-base text-red-600">{error}</p>}
             <div className="flex justify-end pt-1">
               <button

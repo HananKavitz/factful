@@ -88,3 +88,36 @@ def test_cancelled_record_ignores_story_completion() -> None:
     snapshot = record.snapshot()
     assert snapshot["status"] == "cancelled"
     assert snapshot["story_id"] is None
+
+
+def test_progress_starts_none() -> None:
+    record = JobRecord("j1")
+    assert record.snapshot()["progress"] is None
+
+
+def test_set_progress_records_value() -> None:
+    record = JobRecord("j1")
+    record.set_progress(45)
+    assert record.snapshot()["progress"] == 45
+
+
+def test_set_progress_clamps_low() -> None:
+    record = JobRecord("j1")
+    record.set_progress(-5)
+    assert record.snapshot()["progress"] == 0
+
+
+def test_set_progress_clamps_high_prior_to_done() -> None:
+    record = JobRecord("j1")
+    record.set_progress(150)
+    assert record.snapshot()["progress"] == 100
+
+
+def test_set_story_id_jumps_progress_to_100() -> None:
+    record = JobRecord("j1")
+    record.set_status("running")
+    record.set_progress(95)
+    record.set_story_id(42)
+    snapshot = record.snapshot()
+    assert snapshot["status"] == "done"
+    assert snapshot["progress"] == 100

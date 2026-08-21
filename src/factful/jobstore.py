@@ -20,6 +20,7 @@ class JobRecord:
         self._stage: str | None = None
         self._error: str | None = None
         self._story_id: int | None = None
+        self._progress: int | None = None
         self._cancelled = threading.Event()
 
     @property
@@ -33,6 +34,10 @@ class JobRecord:
     def set_stage(self, stage: str) -> None:
         with self._lock:
             self._stage = stage
+
+    def set_progress(self, progress: int) -> None:
+        with self._lock:
+            self._progress = max(0, min(100, progress))
 
     def set_status(self, status: JobStatus) -> None:
         with self._lock:
@@ -49,6 +54,7 @@ class JobRecord:
                 return
             self._status = "done"
             self._story_id = story_id
+            self._progress = 100
 
     def cancel(self) -> None:
         with self._lock:
@@ -68,6 +74,7 @@ class JobRecord:
                 "stage": self._stage,
                 "error": self._error,
                 "story_id": self._story_id,
+                "progress": self._progress,
             }
 
 
