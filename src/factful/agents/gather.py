@@ -17,6 +17,7 @@ from factful.schemas import (
     QueryExpansion,
     RelevanceSelection,
     SourceBundle,
+    UserSourcePage,
 )
 
 DEFAULT_MAX_SOURCES = 10
@@ -225,18 +226,56 @@ def gather(
     settings: Settings | None = None,
     max_sources: int | None = None,
     today: date | None = None,
+    user_urls: list[str] | None = None,
 ) -> SourceBundle:
     limit = max_sources
     if limit is None:
         limit = settings.gather.max_sources if settings is not None else DEFAULT_MAX_SOURCES
+
+    # 1. Pre-fetch user-supplied URLs
+    seen_urls: set[str] = set()
+    citations: list[Citation] = []
+    user_pages: list[UserSourcePage] = []
+    next_id = 1
+    if user_urls:
+        for url in user_urls:
+            norm = _normalize_url(url)
+            if norm in seen_urls:
+                continue
+            seen_urls.add(norm)
+            page = fetcher.fetch(url)
+            if page is None:
+                continue
+            user_pages.append(UserSourcePage(url=page.url, title=page.title, text=page.text))
+            for claim in mine_claims(page, client=client):
+                citations.append(
+                    Citation(
+                        claim_id=f"c{next_id}",
+                        claim=claim.claim,
+                        source_url=page.url,
+                        source_title=page.title,
+                        publisher=_publisher_from_url(url),
+                        publish_date=page.publish_date,
+                        key_stat=claim.key_stat,
+                        quote_snippet=claim.quote_snippet,
+                        passage_ref=find_passage_para(page.text, claim.quote_snippet),
+                        retrieved_at=datetime.now(UTC),
+                    )
+                )
+                next_id += 1
+
+    # 2. Search
     queries = expand_queries(topic, angle, client=client, today=today)
     results: list[SearchResult] = []
     for query in queries:
         results.extend(searcher.search(query))
 
-    citations: list[Citation] = []
-    next_id = 1
-    for result in dedupe_by_url(results)[:limit]:
+    remaining = max(0, limit - len({c.source_url for c in citations}))
+    for result in dedupe_by_url(results)[:remaining]:
+        norm = _normalize_url(result.url)
+        if norm in seen_urls:
+            continue
+        seen_urls.add(norm)
         page = fetcher.fetch(result.url)
         if page is None:
             continue
@@ -247,7 +286,7 @@ def gather(
                     claim=claim.claim,
                     source_url=page.url,
                     source_title=page.title,
-                    publisher=_publisher_from_url(page.url),
+                    publisher=_publisher_from_url(result.url),
                     publish_date=page.publish_date,
                     key_stat=claim.key_stat,
                     quote_snippet=claim.quote_snippet,
@@ -261,4 +300,4 @@ def gather(
     focused = filter_relevant(citations, topic, angle, client=client, today=today)
     if not focused:
         focused = citations
-    return SourceBundle(topic=topic, angle=angle, citations=focused)
+    return SourceBundle(topic=topic, angle=angle, citations=focused, user_source_pages=user_pages)

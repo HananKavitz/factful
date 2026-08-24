@@ -430,3 +430,244 @@ def test_gather_falls_back_to_unfiltered_claims_when_relevance_filter_keeps_noth
         fetcher=FakeFetcher(PAGES),
     )
     assert [c.claim_id for c in bundle.citations] == ["c1", "c2", "c3", "c4"]
+
+
+# ---- user_urls ---------------------------------------------------------------
+
+USER_URL_PAGES = {
+    "https://www.user-source.example/article": Page(
+        url="https://www.user-source.example/article",
+        title="User Article",
+        publish_date="2025-03-01",
+        text="The company raised $10M in Series A. The product has 50k users.",
+    ),
+}
+
+
+def test_gather_with_user_urls_produces_citations() -> None:
+    client = FakeClient(
+        expansion=QueryExpansion(queries=["q1", "q2", "q3", "q4"]),
+        mine=MINED,
+    )
+    fetcher = FakeFetcher(PAGES | USER_URL_PAGES)
+    bundle = gather(
+        TOPIC,
+        ANGLE,
+        client=client,
+        searcher=FakeSearcher(SEARCH_RESULTS),
+        fetcher=fetcher,
+        user_urls=["https://www.user-source.example/article"],
+    )
+    user_citations = [c for c in bundle.citations if "user-source.example" in c.source_url]
+    assert user_citations
+    assert all(c.source_url == "https://www.user-source.example/article" for c in user_citations)
+    # The fake client always returns MINED claims regardless of page text,
+    # so user citations carry the same mined claims as search results.
+    assert any("$4B" in c.claim for c in user_citations)
+    assert any(c.publisher == "user-source.example" for c in user_citations)
+
+
+def test_gather_user_urls_appear_before_search_results() -> None:
+    client = FakeClient(
+        expansion=QueryExpansion(queries=["q1", "q2", "q3", "q4"]),
+        mine=MINED,
+    )
+    fetcher = FakeFetcher(PAGES | USER_URL_PAGES)
+    bundle = gather(
+        TOPIC,
+        ANGLE,
+        client=client,
+        searcher=FakeSearcher(SEARCH_RESULTS),
+        fetcher=fetcher,
+        user_urls=["https://www.user-source.example/article"],
+    )
+    # First citations come from the user-provided URL
+    assert bundle.citations[0].source_url == "https://www.user-source.example/article"
+    assert bundle.citations[1].source_url == "https://www.user-source.example/article"
+
+
+def test_gather_user_urls_skip_unfetchable() -> None:
+    client = FakeClient(
+        expansion=QueryExpansion(queries=["q1", "q2", "q3", "q4"]),
+        mine=MINED,
+    )
+    bundle = gather(
+        TOPIC,
+        ANGLE,
+        client=client,
+        searcher=FakeSearcher(SEARCH_RESULTS),
+        fetcher=FakeFetcher(PAGES),
+        user_urls=["https://nonexistent.example/missing"],
+    )
+    urls = {c.source_url for c in bundle.citations}
+    assert "https://nonexistent.example/missing" not in urls
+    assert "https://reports.example/market" in urls
+
+
+def test_gather_user_urls_dedup_with_search() -> None:
+    """A URL supplied both by the user and by search results appears once."""
+    client = FakeClient(
+        expansion=QueryExpansion(queries=["q1", "q2", "q3", "q4"]),
+        mine=MINED,
+    )
+    fetcher = FakeFetcher(PAGES)
+    # "https://reports.example/market" is in both SEARCH_RESULTS and user_urls
+    bundle = gather(
+        TOPIC,
+        ANGLE,
+        client=client,
+        searcher=FakeSearcher(SEARCH_RESULTS),
+        fetcher=fetcher,
+        user_urls=["https://reports.example/market"],
+    )
+    reports = [c for c in bundle.citations if "reports.example" in c.source_url]
+    assert len(reports) == 2  # two mined claims from that page, not duplicated
+
+
+def test_gather_user_urls_www_normalized_dedup() -> None:
+    """www.reports.example/market is deduped against reports.example/market from search."""
+    client = FakeClient(
+        expansion=QueryExpansion(queries=["q1", "q2", "q3", "q4"]),
+        mine=MINED,
+    )
+    www_page = Page(
+        url="https://www.reports.example/market",
+        title="Market Report",
+        publish_date="2024-01-01",
+        text="The market grew. Revenue hit $4B in 2024.",
+    )
+    fetcher = FakeFetcher(PAGES | {"https://www.reports.example/market": www_page})
+    bundle = gather(
+        TOPIC,
+        ANGLE,
+        client=client,
+        searcher=FakeSearcher(SEARCH_RESULTS),
+        fetcher=fetcher,
+        user_urls=["https://www.reports.example/market"],
+    )
+    # User URL www.reports.example/market normalizes to reports.example/market,
+    # which matches the search result.  Only 2 citations (the 2 MINED claims)
+    # come from that page — no duplicate from the search loop.
+    reports = [c for c in bundle.citations if "reports.example" in c.source_url]
+    assert len(reports) == 2
+    assert all(c.source_url == "https://www.reports.example/market" for c in reports)
+
+
+def test_gather_no_user_urls_is_noop() -> None:
+    """Passing user_urls=None or empty list leaves existing behaviour unchanged."""
+    for user_urls in (None, []):
+        client = FakeClient(
+            expansion=QueryExpansion(queries=["q1", "q2", "q3", "q4"]),
+            mine=MINED,
+        )
+        bundle = gather(
+            TOPIC,
+            ANGLE,
+            client=client,
+            searcher=FakeSearcher(SEARCH_RESULTS),
+            fetcher=FakeFetcher(PAGES),
+            user_urls=user_urls,
+        )
+        assert [c.claim_id for c in bundle.citations] == ["c1", "c2", "c3", "c4"]
+
+
+def test_gather_honors_max_sources_with_user_urls() -> None:
+    client = FakeClient(
+        expansion=QueryExpansion(queries=["q1", "q2", "q3", "q4"]),
+        mine=MINED,
+    )
+    fetcher = FakeFetcher(PAGES | USER_URL_PAGES)
+    bundle = gather(
+        TOPIC,
+        ANGLE,
+        client=client,
+        searcher=FakeSearcher(SEARCH_RESULTS),
+        fetcher=fetcher,
+        settings=Settings.model_validate({"gather": {"max_sources": 1}}),
+        user_urls=["https://www.user-source.example/article"],
+    )
+    assert len(bundle.citations) == 2  # pre-fetched user URL claims fill the slot
+
+
+def test_gather_does_not_starve_search_when_user_url_yields_many_claims() -> None:
+    """A user-supplied article with many mined claims does NOT consume the
+    entire source budget.  The remaining budget is computed from unique source
+    URLs, not from individual claims, so web search results still get fetched."""
+    many_claims = ClaimMineOutput(
+        claims=[
+            MinedClaim(claim=f"Stat number {i}", key_stat=f"stat-{i}", quote_snippet="v." * i)
+            for i in range(1, 10)
+        ]
+    )
+    user_page = {
+        "https://www.rich-source.example/long": Page(
+            url="https://www.rich-source.example/long",
+            title="Rich source",
+            publish_date="2026-01-01",
+            text=" ".join(f"Stat number {i}." for i in range(1, 10)),
+        )
+    }
+    client = FakeClient(
+        expansion=QueryExpansion(queries=["q1", "q2", "q3", "q4"]),
+        mine=many_claims,
+    )
+    fetcher = FakeFetcher(PAGES | user_page)
+    bundle = gather(
+        TOPIC,
+        ANGLE,
+        client=client,
+        searcher=FakeSearcher(SEARCH_RESULTS),
+        fetcher=fetcher,
+        user_urls=["https://www.rich-source.example/long"],
+    )
+    # User URL: 1 unique URL → consumes 1 source slot
+    # Default limit is 10 → remaining = 9 search slots → at least one search
+    # result gets fetched and mined.
+    user_urls = {c.source_url for c in bundle.citations}
+    search_urls = {
+        c.source_url
+        for c in bundle.citations
+        if c.source_url != "https://www.rich-source.example/long"
+    }
+    assert len(user_urls) >= 2, (
+        f"expected citations from ≥2 unique URLs, got {len(user_urls)}: user-only={user_urls}"
+    )
+    assert search_urls, "expected at least one search-result citation alongside user-URL citations"
+
+
+def test_gather_stores_user_source_pages_in_bundle() -> None:
+    client = FakeClient(
+        expansion=QueryExpansion(queries=["q1", "q2", "q3", "q4"]),
+        mine=MINED,
+    )
+    fetcher = FakeFetcher(PAGES | USER_URL_PAGES)
+    bundle = gather(
+        TOPIC,
+        ANGLE,
+        client=client,
+        searcher=FakeSearcher(SEARCH_RESULTS),
+        fetcher=fetcher,
+        user_urls=["https://www.user-source.example/article"],
+    )
+    assert len(bundle.user_source_pages) == 1
+    stored = bundle.user_source_pages[0]
+    assert stored.url == "https://www.user-source.example/article"
+    assert stored.title == "User Article"
+    assert "The company raised $10M" in stored.text
+
+
+def test_gather_no_user_urls_produces_empty_user_pages() -> None:
+    for user_urls in (None, []):
+        client = FakeClient(
+            expansion=QueryExpansion(queries=["q1", "q2", "q3", "q4"]),
+            mine=MINED,
+        )
+        bundle = gather(
+            TOPIC,
+            ANGLE,
+            client=client,
+            searcher=FakeSearcher(SEARCH_RESULTS),
+            fetcher=FakeFetcher(PAGES),
+            user_urls=user_urls,
+        )
+        assert bundle.user_source_pages == []
