@@ -56,6 +56,16 @@ class EditStoryRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=4000)
 
 
+class GenerateNoteRequest(BaseModel):
+    title: str = Field(min_length=1)
+    markdown: str = Field(min_length=1)
+    instructions: str | None = Field(default=None, max_length=4000)
+
+
+class GeneratedNote(BaseModel):
+    note: str
+
+
 class UpdateStyleRequest(BaseModel):
     samples: str = Field(min_length=1, max_length=40000)
 

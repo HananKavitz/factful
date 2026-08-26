@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+﻿import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { configureStore } from "@reduxjs/toolkit";
 import userEvent from "@testing-library/user-event";
 import { Provider } from "react-redux";
@@ -12,6 +12,8 @@ const hooks = vi.hoisted(() => ({
   saving: false,
   editing: false,
   deleting: false,
+  generatingNote: false,
+  generatedNote: null as string | null,
   updateStory: vi.fn(() => ({
     unwrap: () => Promise.resolve(hooks.story),
   })),
@@ -27,6 +29,9 @@ const hooks = vi.hoisted(() => ({
   cancelJob: vi.fn(() => ({
     unwrap: () => Promise.resolve(undefined),
   })),
+  generateNote: vi.fn(() => ({
+    unwrap: () => Promise.resolve({ note: hooks.generatedNote ?? "Check out this story!" }),
+  })),
 }));
 
 vi.mock("../stories/storiesApi", () => ({
@@ -38,6 +43,7 @@ vi.mock("../stories/storiesApi", () => ({
   useEditStoryMutation: () => [hooks.editStory, { isLoading: hooks.editing }],
   useDeleteStoryMutation: () => [hooks.deleteStory, { isLoading: hooks.deleting }],
   useCreateStoryMutation: () => [hooks.createStory, { isLoading: false }],
+  useGenerateNoteMutation: () => [hooks.generateNote, { isLoading: hooks.generatingNote }],
 }));
 
 vi.mock("../jobs/jobsApi", () => ({
@@ -83,9 +89,15 @@ describe("StoryEditor", () => {
     hooks.saving = false;
     hooks.editing = false;
     hooks.deleting = false;
-    hooks.updateStory.mockClear();
-    hooks.editStory.mockClear();
-    hooks.deleteStory.mockClear();
+    hooks.generatingNote = false;
+    hooks.generatedNote = null;
+    hooks.updateStory.mockReset();
+    hooks.editStory.mockReset();
+    hooks.deleteStory.mockReset();
+    hooks.generateNote.mockReset();
+    hooks.generateNote.mockReturnValue({
+      unwrap: () => Promise.resolve({ note: hooks.generatedNote ?? "Check out this story!" }),
+    });
   });
 
   afterEach(() => {
@@ -250,5 +262,111 @@ describe("StoryEditor", () => {
     expect(
       screen.queryByRole("heading", { name: "Regenerate story" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("shows a Generate Note button", () => {
+    renderEditor();
+    expect(screen.getByRole("button", { name: "Generate Note" })).toBeInTheDocument();
+  });
+
+  it("opens the note modal and lets the user inject instructions", async () => {
+    hooks.generatedNote = "Check out this amazing story!";
+    const user = userEvent.setup();
+    renderEditor();
+
+    await user.click(screen.getByRole("button", { name: "Generate Note" }));
+
+    expect(hooks.generateNote).not.toHaveBeenCalled();
+    const instructions = screen.getByLabelText("Instructions (optional)");
+    await user.type(instructions, "Keep it under 20 words.");
+
+    await user.click(screen.getByRole("button", { name: "Generate note" }));
+
+    expect(hooks.generateNote).toHaveBeenCalledWith({
+      id: 1,
+      body: {
+        title: "Chips",
+        markdown: "# Chips\n\nDemand is rising.",
+        instructions: "Keep it under 20 words.",
+      },
+    });
+    const noteTextarea = await screen.findByLabelText("Substack Note text");
+    expect(noteTextarea).toHaveValue("Check out this amazing story!");
+    expect(screen.getByText("Substack Note")).toBeInTheDocument();
+  });
+
+  it("generates with no instructions when the field is left blank", async () => {
+    hooks.generatedNote = "Check out this amazing story!";
+    const user = userEvent.setup();
+    renderEditor();
+
+    await user.click(screen.getByRole("button", { name: "Generate Note" }));
+    await user.click(screen.getByRole("button", { name: "Generate note" }));
+
+    expect(hooks.generateNote).toHaveBeenCalledWith({
+      id: 1,
+      body: {
+        title: "Chips",
+        markdown: "# Chips\n\nDemand is rising.",
+        instructions: null,
+      },
+    });
+    await screen.findByLabelText("Substack Note text");
+  });
+
+  it("shows a loading state while generating", async () => {
+    hooks.generatingNote = false;
+    hooks.generateNote.mockReturnValue({
+      unwrap: () => new Promise(() => {}),
+    });
+    const user = userEvent.setup();
+    renderEditor();
+
+    await user.click(screen.getByRole("button", { name: "Generate Note" }));
+    hooks.generatingNote = true;
+    await user.type(screen.getByLabelText("Instructions (optional)"), "x");
+
+    expect(screen.getAllByText("Generating note…").length).toBeGreaterThan(0);
+  });
+
+  it("shows an error in the modal when generation fails", async () => {
+    hooks.generateNote.mockReturnValue({
+      unwrap: () => Promise.reject(new Error("Network error")),
+    });
+    const user = userEvent.setup();
+    renderEditor();
+
+    await user.click(screen.getByRole("button", { name: "Generate Note" }));
+    await user.click(screen.getByRole("button", { name: "Generate note" }));
+
+    expect(await screen.findByText("Could not generate note. Please try again.")).toBeInTheDocument();
+  });
+
+  it("allows editing the note text before copying", async () => {
+    hooks.generatedNote = "Original note text";
+    const user = userEvent.setup();
+    renderEditor();
+
+    await user.click(screen.getByRole("button", { name: "Generate Note" }));
+    await user.click(screen.getByRole("button", { name: "Generate note" }));
+    const noteTextarea = await screen.findByLabelText("Substack Note text");
+    expect(noteTextarea).toHaveValue("Original note text");
+
+    await user.clear(noteTextarea);
+    await user.type(noteTextarea, "Edited note text");
+    expect(noteTextarea).toHaveValue("Edited note text");
+  });
+
+  it("dismisses the note modal when Close is clicked", async () => {
+    hooks.generatedNote = "Original note text";
+    const user = userEvent.setup();
+    renderEditor();
+
+    await user.click(screen.getByRole("button", { name: "Generate Note" }));
+    await user.click(screen.getByRole("button", { name: "Generate note" }));
+    expect(await screen.findByText("Substack Note")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByText("Substack Note")).not.toBeInTheDocument();
   });
 });

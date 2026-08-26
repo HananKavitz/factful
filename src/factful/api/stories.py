@@ -10,6 +10,8 @@ from factful.api.deps import get_current_user, get_sessions
 from factful.api.schemas import (
     CreateStoryRequest,
     EditStoryRequest,
+    GeneratedNote,
+    GenerateNoteRequest,
     JobStatus,
     StoryDetail,
     StorySummary,
@@ -19,6 +21,7 @@ from factful.editing import Editor
 from factful.generation import GenerationRequest, extract_title
 from factful.jobstore import JobStore
 from factful.models import Story, User
+from factful.notes import NoteGenerator
 from factful.style.schema import StyleProfile
 
 router = APIRouter()
@@ -138,6 +141,21 @@ def delete_story(
             raise HTTPException(status_code=404, detail="story not found")
         db.delete(story)
         db.commit()
+
+
+@router.post("/{story_id}/note", response_model=GeneratedNote)
+def generate_note(
+    story_id: int,
+    body: GenerateNoteRequest,
+    request: Request,
+    user: Annotated[User, Depends(get_current_user)],
+) -> GeneratedNote:
+    generator: NoteGenerator = request.app.state.note_generator
+    try:
+        note = generator(body.title, body.markdown, body.instructions)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return GeneratedNote(note=note)
 
 
 def _profile_for(user_id: int, sessions: Sessions) -> StyleProfile | None:

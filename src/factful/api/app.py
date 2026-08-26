@@ -16,6 +16,7 @@ from factful.db import build_engine, init_db, session_factory
 from factful.editing import build_editor
 from factful.generation import build_generation_runner
 from factful.jobstore import JobStore
+from factful.notes import build_note_generator
 from factful.static import default_frontend_dist, mount_frontend
 
 
@@ -49,6 +50,7 @@ def create_app(
     app.state.generation_runner = generation_runner
     app.state.editor = editor
     app.state.style_extractor = build_style_extractor(settings=settings, env=dict(env))
+    app.state.note_generator = build_note_generator(env=env)
     app.state.env = dict(env)
     app.include_router(auth.router, prefix="/api/auth")
     app.include_router(stories.router, prefix="/api/stories")

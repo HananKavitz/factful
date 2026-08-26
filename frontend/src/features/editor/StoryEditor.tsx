@@ -3,10 +3,12 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   useDeleteStoryMutation,
   useEditStoryMutation,
+  useGenerateNoteMutation,
   useGetStoryQuery,
   useUpdateStoryMutation,
 } from "../stories/storiesApi";
 import { CreateStoryModal } from "../gallery/CreateStoryModal";
+import { NoteModal } from "./NoteModal";
 import type { StoryDetail } from "../../types";
 
 const SAVE_DELAY_MS = 800;
@@ -49,6 +51,7 @@ function EditorForm({ story }: EditorFormProps) {
   const [updateStory, { isLoading: saving }] = useUpdateStoryMutation();
   const [editStory, { isLoading: editing }] = useEditStoryMutation();
   const [deleteStory, { isLoading: deleting }] = useDeleteStoryMutation();
+  const [generateNote, { isLoading: generatingNote }] = useGenerateNoteMutation();
   const navigate = useNavigate();
 
   const [title, setTitle] = useState(story.title);
@@ -57,6 +60,10 @@ function EditorForm({ story }: EditorFormProps) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [regenerateOpen, setRegenerateOpen] = useState(false);
+  const [noteModalOpen, setNoteModalOpen] = useState(false);
+  const [generatedNote, setGeneratedNote] = useState<string | null>(null);
+  const [noteError, setNoteError] = useState<string | null>(null);
+  const [noteInstructions, setNoteInstructions] = useState("");
 
   const debouncedTitle = useDebouncedValue(title, SAVE_DELAY_MS);
   const debouncedMarkdown = useDebouncedValue(markdown, SAVE_DELAY_MS);
@@ -97,6 +104,39 @@ function EditorForm({ story }: EditorFormProps) {
     }
   };
 
+  const handleOpenNoteModal = () => {
+    setNoteModalOpen(true);
+    setGeneratedNote(null);
+    setNoteError(null);
+    setNoteInstructions("");
+  };
+
+  const handleGenerateNote = async () => {
+    setGeneratedNote(null);
+    setNoteError(null);
+    try {
+      const result = await generateNote({
+        id: story.id,
+        body: {
+          title,
+          markdown,
+          instructions: noteInstructions.trim() || null,
+        },
+      }).unwrap();
+      setGeneratedNote(result.note);
+    } catch {
+      setNoteError("Could not generate note. Please try again.");
+    }
+  };
+
+  const handleCopyNote = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Clipboard unavailable — user can manually select and copy
+    }
+  };
+
   const wordCount = markdown.trim() ? markdown.trim().split(/\s+/).length : 0;
 
   return (
@@ -112,6 +152,13 @@ function EditorForm({ story }: EditorFormProps) {
             className="rounded-md bg-blush px-4 py-2 text-sm font-medium text-slate-900 hover:bg-blush-dark"
           >
             Regenerate
+          </button>
+          <button
+            onClick={handleOpenNoteModal}
+            disabled={generatingNote}
+            className="rounded-md bg-blush px-4 py-2 text-sm font-medium text-slate-900 hover:bg-blush-dark disabled:opacity-50"
+          >
+            {generatingNote ? "Generating note…" : "Generate Note"}
           </button>
           <button
             onClick={() => setConfirmOpen(true)}
@@ -166,6 +213,20 @@ function EditorForm({ story }: EditorFormProps) {
             </div>
           </div>
         </div>
+      )}
+
+      {noteModalOpen && (
+        <NoteModal
+          instructions={noteInstructions}
+          generatedNote={generatedNote}
+          onInstructionsChange={setNoteInstructions}
+          onGenerate={handleGenerateNote}
+          onClose={() => setNoteModalOpen(false)}
+          onCopy={handleCopyNote}
+          onNoteChange={setGeneratedNote}
+          loading={generatingNote}
+          error={noteError}
+        />
       )}
 
       <input

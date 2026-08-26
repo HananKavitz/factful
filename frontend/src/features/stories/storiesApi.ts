@@ -20,6 +20,16 @@ export interface EditStoryRequest {
   prompt: string;
 }
 
+export interface GenerateNoteRequest {
+  title: string;
+  markdown: string;
+  instructions?: string | null;
+}
+
+export interface GeneratedNote {
+  note: string;
+}
+
 type StoryTag = { type: "Story"; id: number | "LIST" };
 
 export const storiesApi = baseApi.injectEndpoints({
@@ -73,6 +83,16 @@ export const storiesApi = baseApi.injectEndpoints({
         { type: "Story", id: "LIST" },
       ],
     }),
+    generateNote: build.mutation<
+      GeneratedNote,
+      { id: number; body: GenerateNoteRequest }
+    >({
+      query: ({ id, body }) => ({
+        url: `/stories/${id}/note`,
+        method: "POST",
+        body,
+      }),
+    }),
   }),
 });
 
@@ -83,4 +103,5 @@ export const {
   useUpdateStoryMutation,
   useEditStoryMutation,
   useDeleteStoryMutation,
+  useGenerateNoteMutation,
 } = storiesApi;
