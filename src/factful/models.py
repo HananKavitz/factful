@@ -19,6 +19,8 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(255))
     picture: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     style_profile: Mapped[str | None] = mapped_column(Text, nullable=True)
+    temperature: Mapped[float | None] = mapped_column(Float, nullable=True)
+    top_p: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     stories: Mapped[list[Story]] = relationship(back_populates="user")

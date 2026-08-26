@@ -50,7 +50,7 @@ def make_runner(app):
 
 
 def make_editor():
-    def edit(markdown: str, prompt: str, style=None) -> str:
+    def edit(markdown: str, prompt: str, style=None, temperature=None, top_p=None) -> str:
         return markdown.replace("Body.", f"Body. (edited: {prompt})")
 
     return edit
@@ -71,6 +71,16 @@ def set_style(client: TestClient, email: str = "alice@example.com") -> StyleProf
         user.style_profile = profile.model_dump_json()
         db.commit()
     return profile
+
+
+def set_sampling(
+    client: TestClient, *, temperature: float, top_p: float, email: str = "alice@example.com"
+) -> None:
+    with client.app.state.sessions() as db:
+        user = db.query(User).filter_by(email=email).one()
+        user.temperature = temperature
+        user.top_p = top_p
+        db.commit()
 
 
 def login(client: TestClient, email: str = "alice@example.com") -> dict:
@@ -318,12 +328,49 @@ def test_create_story_passes_none_without_profile(client: TestClient) -> None:
     assert captured["style_profile"] is None
 
 
+def test_create_story_passes_user_sampling_params(client: TestClient) -> None:
+    login(client)
+    set_sampling(client, temperature=1.2, top_p=0.6)
+    captured: dict[str, object] = {}
+
+    def runner(record, request: GenerationRequest) -> None:
+        captured["temperature"] = request.temperature
+        captured["top_p"] = request.top_p
+        record.set_status("done")
+
+    client.app.state.generation_runner = runner
+    response = client.post("/api/stories", json={"topic": "Chip demand"})
+    assert response.status_code == 202
+    assert captured["temperature"] == 1.2
+    assert captured["top_p"] == 0.6
+
+
+def test_edit_story_uses_user_sampling_params(client: TestClient) -> None:
+    login(client)
+    set_sampling(client, temperature=0.9, top_p=0.75)
+    captured: dict[str, object] = {}
+
+    def editor(markdown: str, prompt: str, style=None, temperature=None, top_p=None) -> str:
+        captured["temperature"] = temperature
+        captured["top_p"] = top_p
+        return markdown
+
+    client.app.state.editor = editor
+    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+    story_id = wait_for_job(client, job["job_id"])["story_id"]
+
+    response = client.post(f"/api/stories/{story_id}/edit", json={"prompt": "tighten"})
+    assert response.status_code == 200
+    assert captured["temperature"] == 0.9
+    assert captured["top_p"] == 0.75
+
+
 def test_edit_story_uses_user_style_profile(client: TestClient) -> None:
     login(client)
     profile = set_style(client)
     captured: dict[str, object] = {}
 
-    def editor(markdown: str, prompt: str, style=None) -> str:
+    def editor(markdown: str, prompt: str, style=None, temperature=None, top_p=None) -> str:
         captured["style"] = style
         return markdown
 

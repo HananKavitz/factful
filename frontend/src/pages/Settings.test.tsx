@@ -8,11 +8,13 @@ import { Settings } from "./Settings";
 const getSettings = vi.hoisted(() => vi.fn());
 const saveStyle = vi.hoisted(() => vi.fn());
 const clearStyle = vi.hoisted(() => vi.fn());
+const updateGeneration = vi.hoisted(() => vi.fn());
 
 vi.mock("../features/settings/settingsApi", () => ({
   useGetSettingsQuery: () => getSettings(),
   useSaveStyleMutation: () => [saveStyle, { isLoading: false }],
   useClearStyleMutation: () => [clearStyle, { isLoading: false }],
+  useUpdateGenerationMutation: () => [updateGeneration, { isLoading: false }],
 }));
 
 const profile: StyleProfile = {
@@ -55,8 +57,9 @@ describe("Settings", () => {
     getSettings.mockReset();
     saveStyle.mockReset();
     clearStyle.mockReset();
+    updateGeneration.mockReset();
     getSettings.mockReturnValue({
-      data: { style: null },
+      data: { style: null, temperature: null, top_p: null },
       isLoading: false,
       isError: false,
       refetch: vi.fn(),
@@ -81,7 +84,7 @@ describe("Settings", () => {
 
   it("presents the saved style read-only", () => {
     getSettings.mockReturnValue({
-      data: { style: profile },
+      data: { style: profile, temperature: 0.8, top_p: 0.9 },
       isLoading: false,
       isError: false,
       refetch: vi.fn(),
@@ -99,7 +102,7 @@ describe("Settings", () => {
 
   it("hides empty sections", () => {
     getSettings.mockReturnValue({
-      data: { style: profile },
+      data: { style: profile, temperature: 0.8, top_p: 0.9 },
       isLoading: false,
       isError: false,
       refetch: vi.fn(),
@@ -127,7 +130,7 @@ describe("Settings", () => {
 
   it("hides the analyze form once a style is set", () => {
     getSettings.mockReturnValue({
-      data: { style: profile },
+      data: { style: profile, temperature: 0.8, top_p: 0.9 },
       isLoading: false,
       isError: false,
       refetch: vi.fn(),
@@ -155,7 +158,7 @@ describe("Settings", () => {
 
   it("removes the style", async () => {
     getSettings.mockReturnValue({
-      data: { style: profile },
+      data: { style: profile, temperature: 0.8, top_p: 0.9 },
       isLoading: false,
       isError: false,
       refetch: vi.fn(),
@@ -168,7 +171,7 @@ describe("Settings", () => {
 
     expect(clearStyle).toHaveBeenCalled();
     getSettings.mockReturnValue({
-      data: { style: null },
+      data: { style: null, temperature: null, top_p: null },
       isLoading: false,
       isError: false,
       refetch: vi.fn(),
@@ -184,5 +187,58 @@ describe("Settings", () => {
   it("disables the analyze button until samples are provided", () => {
     renderPage();
     expect(screen.getByRole("button", { name: "Analyze & save" })).toBeDisabled();
+  });
+
+  it("shows sampling defaults when unset", () => {
+    renderPage();
+    expect(screen.getByLabelText(/temperature/i)).toHaveValue(0.8);
+    expect(screen.getByLabelText(/top-p/i)).toHaveValue(0.9);
+  });
+
+  it("shows stored sampling values", () => {
+    getSettings.mockReturnValue({
+      data: { style: null, temperature: 1.2, top_p: 0.6 },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
+    renderPage();
+    expect(screen.getByLabelText(/temperature/i)).toHaveValue(1.2);
+    expect(screen.getByLabelText(/top-p/i)).toHaveValue(0.6);
+  });
+
+  it("saves generation settings", async () => {
+    updateGeneration.mockImplementation(() => ({
+      unwrap: () =>
+        Promise.resolve({ style: null, temperature: 0.5, top_p: 0.8 }),
+    }));
+    const user = userEvent.setup();
+    renderPage();
+
+    const tempInput = screen.getByLabelText(/temperature/i);
+    await user.clear(tempInput);
+    await user.type(tempInput, "0.5");
+    const topInput = screen.getByLabelText(/top-p/i);
+    await user.clear(topInput);
+    await user.type(topInput, "0.8");
+
+    await user.click(screen.getByRole("button", { name: "Save generation settings" }));
+
+    expect(updateGeneration).toHaveBeenCalledWith({ temperature: 0.5, top_p: 0.8 });
+    expect(await screen.findByText("Generation settings saved.")).toBeInTheDocument();
+  });
+
+  it("shows an error when saving generation settings fails", async () => {
+    updateGeneration.mockImplementation(() => ({
+      unwrap: () => Promise.reject(new Error("boom")),
+    }));
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: "Save generation settings" }));
+
+    expect(
+      await screen.findByText(/could not save generation settings/i),
+    ).toBeInTheDocument();
   });
 });

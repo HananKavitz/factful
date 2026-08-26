@@ -8,12 +8,13 @@ from datetime import date
 
 from factful.config import Settings
 from factful.llm.client import ChatClient
-from factful.schemas import CritiqueReport, Draft, FactVerdict, SourceBundle
+from factful.schemas import CritiqueReport, Draft, FactVerdict, SourceBundle, UserSourcePage
 from factful.style.schema import StyleProfile
 
 _CLAIM_TAG = re.compile(r"\[\[(?P<claim_id>\w+)\]\]")
 _SENTENCE_RE = re.compile(r"(?:[^.!?]|\d\.\d)+[.!?]+(?=\s|\Z)")
 _BLANK_LINE_RE = re.compile(r"\n\s*\n")
+_SENTENCE_BOUNDARIES = (". ", ".\n", "\n")
 
 
 def _split_sentences(text: str) -> list[str]:
@@ -81,9 +82,50 @@ def _instructions_section(instructions: str | None) -> str:
     return f"Writer instructions:\n{normalized}\n\n"
 
 
+def _truncate_text(text: str, max_characters: int) -> str:
+    if len(text) <= max_characters:
+        return text
+    cut = text[:max_characters]
+    for boundary in _SENTENCE_BOUNDARIES:
+        index = cut.rfind(boundary)
+        if index != -1:
+            return cut[: index + 1].rstrip()
+    return cut.rstrip()
+
+
+def _user_page_section(pages: list[UserSourcePage], max_per_page: int, max_total: int) -> str:
+    if not pages:
+        return ""
+    parts: list[str] = []
+    remaining_budget = max_total
+    for page in pages:
+        if remaining_budget <= 0:
+            break
+        budget = min(max_per_page, remaining_budget)
+        truncated = _truncate_text(page.text, budget)
+        parts.append(
+            f"================\n"
+            f"Background article provided by user (research only — do NOT copy)\n"
+            f"URL: {page.url}\n"
+            f"Title: {page.title}\n\n"
+            f"{truncated}\n"
+            f"================\n"
+        )
+        remaining_budget -= len(truncated)
+    return "\n".join(parts) + "\n\n"
+
+
 _WRITER_INSTRUCTIONS = """
 You are an expert Substack writer. Compose a COMPLETE Markdown article on the
 topic below, in the exact voice and style of the supplied style profile.
+
+The Topic field at the top of this prompt is the article's subject. Ignore any
+URLs or metadata that appear in it — write about the topic itself.
+
+If a "User-supplied source articles" section appears below, treat it as
+background research. Do NOT copy from it verbatim. Do NOT echo its title or
+publish date as your own. Use it to inform your own original analysis, then
+cite only the claims tagged with [[claim_id]] for any factual numbers.
 
 Rule — factual grounding:
 - Every factual sentence that uses a number, statistic, or sourced detail MUST end
@@ -122,6 +164,10 @@ _REVISION_INSTRUCTIONS = """
 You are revising an existing Substack draft to address feedback. Apply TARGETED
 edits only — do not rewrite the article from scratch.
 
+If a "User-supplied source articles" section appears below, treat it as
+background research. Do NOT copy from it verbatim. Your previous draft already
+reflects the research — only use it to resolve feedback or fix factual errors.
+
 Rules:
 - Fix every issue listed by the critic and every fact-check revision suggestion.
 - Do not alter sentences that were not flagged, except where a fix forces it.
@@ -157,12 +203,18 @@ def build_writer_prompt(
         f"quote_snippet: {c.quote_snippet}"
         for c in bundle.citations
     )
+    user_pages = _user_page_section(
+        bundle.user_source_pages,
+        max_per_page=writer.max_user_page_chars,
+        max_total=writer.max_user_total_chars,
+    )
     return (
         f"Topic: {bundle.topic}\n"
         f"Angle: {bundle.angle}\n\n"
         f"Today is {today.isoformat()}.\n\n"
         f"Style profile:\n{json.dumps(profile.model_dump(), indent=2)}\n\n"
         f"Source bundle (claims to ground the article):\n{citations}\n\n"
+        f"{user_pages}"
         f"{_instructions_section(instructions)}"
         f"{_WRITER_INSTRUCTIONS}\n\n"
         f"{_length_guidance(writer.min_words, writer.target_words, writer.max_words)}\n\n"
@@ -214,6 +266,11 @@ def build_revision_prompt(
         f"quote_snippet: {c.quote_snippet}"
         for c in bundle.citations
     )
+    user_pages = _user_page_section(
+        bundle.user_source_pages,
+        max_per_page=writer.max_user_page_chars,
+        max_total=writer.max_user_total_chars,
+    )
     return (
         f"Topic: {bundle.topic}\n"
         f"Angle: {bundle.angle}\n\n"
@@ -222,12 +279,22 @@ def build_revision_prompt(
         f"Source bundle (claims to ground the article):\n{citations}\n\n"
         f"Current draft:\n{draft.markdown}\n\n"
         f"Feedback to address:\n{_render_feedback(verdicts, critique)}\n\n"
+        f"{user_pages}"
         f"{_instructions_section(instructions)}"
         f"{_REVISION_INSTRUCTIONS}\n\n"
         f"{_revision_length_guidance(writer.min_words, writer.target_words, writer.max_words)}\n\n"
         f"{_paragraph_guidance(profile.metrics.avg_paragraph_sentences)}\n\n"
         f"Output schema (return JSON matching this shape):\n"
         f"{json.dumps(Draft.model_json_schema(), indent=2)}"
+    )
+
+
+def _sampling_params(
+    settings: Settings, temperature: float | None, top_p: float | None
+) -> tuple[float, float]:
+    return (
+        settings.writer.temperature if temperature is None else temperature,
+        settings.writer.top_p if top_p is None else top_p,
     )
 
 
@@ -242,7 +309,10 @@ def revise_article(
     settings: Settings | None = None,
     instructions: str | None = None,
     today: date | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
 ) -> Draft:
+    settings = settings if settings is not None else Settings()
     prompt = build_revision_prompt(
         draft,
         verdicts,
@@ -253,7 +323,10 @@ def revise_article(
         instructions=instructions,
         today=today,
     )
-    result = client.chat_completion(prompt=prompt, schema=Draft)
+    temperature, top_p = _sampling_params(settings, temperature, top_p)
+    result = client.chat_completion(
+        prompt=prompt, schema=Draft, temperature=temperature, top_p=top_p
+    )
     if not isinstance(result, Draft):
         raise TypeError(f"expected Draft, got {type(result).__name__}")
     return result.model_copy(
@@ -309,9 +382,15 @@ def apply_user_edit(
     client: ChatClient,
     settings: Settings | None = None,
     today: date | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
 ) -> Draft:
+    settings = settings if settings is not None else Settings()
     prompt = build_user_edit_prompt(markdown, instruction, profile, settings=settings, today=today)
-    result = client.chat_completion(prompt=prompt, schema=Draft)
+    temperature, top_p = _sampling_params(settings, temperature, top_p)
+    result = client.chat_completion(
+        prompt=prompt, schema=Draft, temperature=temperature, top_p=top_p
+    )
     if not isinstance(result, Draft):
         raise TypeError(f"expected Draft, got {type(result).__name__}")
     return result.model_copy(
@@ -342,11 +421,17 @@ def write_article(
     settings: Settings | None = None,
     instructions: str | None = None,
     today: date | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
 ) -> Draft:
+    settings = settings if settings is not None else Settings()
     prompt = build_writer_prompt(
         bundle, profile, settings=settings, instructions=instructions, today=today
     )
-    result = client.chat_completion(prompt=prompt, schema=Draft)
+    temperature, top_p = _sampling_params(settings, temperature, top_p)
+    result = client.chat_completion(
+        prompt=prompt, schema=Draft, temperature=temperature, top_p=top_p
+    )
     if not isinstance(result, Draft):
         raise TypeError(f"expected Draft, got {type(result).__name__}")
     return result.model_copy(

@@ -39,6 +39,10 @@ class Writer(BaseModel):
     target_words: int = Field(default=2000, ge=100)
     max_words: int = Field(default=2500, ge=100)
     max_instructions_chars: int = Field(default=4000, ge=1)
+    max_user_page_chars: int = Field(default=8000, ge=1)
+    max_user_total_chars: int = Field(default=20000, ge=1)
+    temperature: float = Field(default=0.8, ge=0.0, le=2.0)
+    top_p: float = Field(default=0.9, gt=0.0, le=1.0)
 
     @model_validator(mode="after")
     def _word_bounds_ordered(self) -> Writer:

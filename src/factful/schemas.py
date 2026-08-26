@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Literal
 
@@ -17,10 +19,17 @@ class Citation(BaseModel):
     retrieved_at: datetime
 
 
+class UserSourcePage(BaseModel):
+    url: str
+    title: str
+    text: str
+
+
 class SourceBundle(BaseModel):
     topic: str
     angle: str
     citations: list[Citation] = Field(default_factory=list)
+    user_source_pages: list[UserSourcePage] = Field(default_factory=list)
 
 
 class QueryExpansion(BaseModel):

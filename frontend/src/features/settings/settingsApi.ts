@@ -5,6 +5,11 @@ export interface SaveStyleRequest {
   samples: string;
 }
 
+export interface UpdateGenerationSettingsRequest {
+  temperature: number;
+  top_p: number;
+}
+
 export const settingsApi = baseApi.injectEndpoints({
   endpoints: (build) => ({
     getSettings: build.query<Settings, void>({
@@ -13,6 +18,10 @@ export const settingsApi = baseApi.injectEndpoints({
     }),
     saveStyle: build.mutation<Settings, SaveStyleRequest>({
       query: (body) => ({ url: "/settings/style", method: "POST", body }),
+      invalidatesTags: [{ type: "Settings", id: "STYLE" }],
+    }),
+    updateGeneration: build.mutation<Settings, UpdateGenerationSettingsRequest>({
+      query: (body) => ({ url: "/settings/generation", method: "PUT", body }),
       invalidatesTags: [{ type: "Settings", id: "STYLE" }],
     }),
     clearStyle: build.mutation<void, void>({
@@ -25,5 +34,6 @@ export const settingsApi = baseApi.injectEndpoints({
 export const {
   useGetSettingsQuery,
   useSaveStyleMutation,
+  useUpdateGenerationMutation,
   useClearStyleMutation,
 } = settingsApi;

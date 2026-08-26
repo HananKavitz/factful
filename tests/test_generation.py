@@ -138,6 +138,39 @@ class TestRunGeneration:
             assert report["decision"] == "publish"
             assert snapshot["story_id"] == story.id
 
+    def test_forwards_sampling_params_to_pipeline(self, tmp_path, monkeypatch) -> None:
+        engine = build_engine(f"sqlite:///{tmp_path / 'sampling.db'}")
+        init_db(engine)
+        sessions = session_factory(engine)
+        self._seed_user(sessions)
+
+        captured: dict[str, object] = {}
+        monkeypatch.setattr("factful.generation.build_runtime", lambda env: make_runtime_stub())
+        monkeypatch.setattr(
+            "factful.generation.run_pipeline",
+            lambda *args, **kwargs: (
+                captured.update(temperature=kwargs.get("temperature"), top_p=kwargs.get("top_p"))
+                or make_result(draft="[[c1]]\n# The Big Story\n\nbody")
+            ),
+        )
+
+        record = JobRecord("job-sampling", user_id=7)
+        run_generation(
+            record,
+            GenerationRequest(
+                user_id=7,
+                topic="T",
+                angle=None,
+                instructions=None,
+                temperature=0.6,
+                top_p=0.75,
+            ),
+            sessions=sessions,
+            env={},
+        )
+
+        assert captured == {"temperature": 0.6, "top_p": 0.75}
+
     def test_error_propagates_and_persists_no_story(self, tmp_path, monkeypatch) -> None:
         engine = build_engine(f"sqlite:///{tmp_path / 'err.db'}")
         init_db(engine)

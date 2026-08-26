@@ -62,6 +62,13 @@ class UpdateStyleRequest(BaseModel):
 
 class SettingsOut(BaseModel):
     style: StyleProfile | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+
+
+class UpdateGenerationSettingsRequest(BaseModel):
+    temperature: float = Field(ge=0.0, le=2.0)
+    top_p: float = Field(gt=0.0, le=1.0)
 
 
 class JobStatus(BaseModel):

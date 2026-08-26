@@ -60,9 +60,11 @@ class FakeClient:
         self.drafts = list(drafts) if drafts else []
         self.scores = list(scores) if scores else []
         self.calls: list[tuple[str, type]] = []
+        self.kwargs: list[dict[str, object]] = []
 
-    def chat_completion(self, *, prompt: str, schema: type):
+    def chat_completion(self, *, prompt: str, schema: type, **kwargs: object):
         self.calls.append((prompt, schema))
+        self.kwargs.append(kwargs)
         if schema is QueryExpansion:
             return QueryExpansion(queries=["q1", "q2", "q3", "q4"])
         if schema is ClaimMineOutput:
@@ -297,6 +299,42 @@ def test_run_pipeline_forwards_today_to_gather_and_writer_prompts() -> None:
     draft_prompts = [prompt for prompt, schema in client.calls if schema is Draft]
     assert draft_prompts
     assert all("Today is 2026-08-13" in prompt for prompt in draft_prompts)
+
+
+def test_run_pipeline_forwards_sampling_params_to_writer() -> None:
+    client = FakeClient(drafts=[long_draft()], scores=[90])
+    run_pipeline(
+        "Semiconductors",
+        "supply risk",
+        settings=settings(),
+        searcher=FakeSearcher(),
+        fetcher=FakeFetcher(),
+        clients=clients(client),
+        profile=profile(),
+        temperature=0.7,
+        top_p=0.85,
+    )
+    writer_calls = [
+        kw for (p, s), kw in zip(client.calls, client.kwargs, strict=True) if s is Draft
+    ]
+    assert writer_calls == [{"temperature": 0.7, "top_p": 0.85}]
+
+
+def test_run_pipeline_defaults_writer_sampling_from_settings() -> None:
+    client = FakeClient(drafts=[long_draft()], scores=[90])
+    run_pipeline(
+        "Semiconductors",
+        "supply risk",
+        settings=settings(),
+        searcher=FakeSearcher(),
+        fetcher=FakeFetcher(),
+        clients=clients(client),
+        profile=profile(),
+    )
+    writer_params = [
+        call for (p, kw), call in zip(client.calls, client.kwargs, strict=True) if kw is Draft
+    ]
+    assert writer_params == [{"temperature": 0.8, "top_p": 0.9}]
 
 
 def test_run_pipeline_logs_progress(
@@ -535,3 +573,78 @@ def test_run_pipeline_stops_with_best_draft_when_floor_never_met() -> None:
     assert result.decision == "stop"
     assert "max passes" in result.reason
     assert result.state.draft == "d1 [[c1]]"
+
+
+# ---- user URL extraction in run_pipeline ------------------------------------
+
+
+def test_run_pipeline_extracts_urls_from_topic() -> None:
+    """A URL embedded in topic text is passed to gather as user_urls."""
+    client = FakeClient(drafts=[long_draft()], scores=[90])
+    topic_with_url = "www.example.com/report What is the state of AI?"
+    result = run_pipeline(
+        topic_with_url,
+        "key figures",
+        settings=settings(),
+        searcher=FakeSearcher(),
+        fetcher=FakeFetcher(),
+        clients=clients(client),
+        profile=profile(),
+    )
+    # gather successfully processes the user URL (fetcher returns the default
+    # page for any URL) — the pipeline completes normally.
+    assert result.decision == "publish"
+
+
+def test_run_pipeline_extracts_urls_from_instructions() -> None:
+    """A URL embedded in instructions is passed to gather as user_urls."""
+    client = FakeClient(drafts=[long_draft()], scores=[90])
+    result = run_pipeline(
+        "Semiconductors",
+        "supply risk",
+        settings=settings(),
+        searcher=FakeSearcher(),
+        fetcher=FakeFetcher(),
+        clients=clients(client),
+        profile=profile(),
+        instructions="Use https://example.com/report as the main source.",
+    )
+    assert result.decision == "publish"
+
+
+def test_run_pipeline_urls_still_passes_instructions_to_writer() -> None:
+    """URL extraction from instructions doesn't strip the text from the writer prompt."""
+    client = FakeClient(
+        drafts=[long_draft("weak draft [[c1]]"), long_draft("better draft [[c1]]")],
+        scores=[70, 90],
+    )
+    result = run_pipeline(
+        "Semiconductors",
+        "supply risk",
+        settings=settings(),
+        searcher=FakeSearcher(),
+        fetcher=FakeFetcher(),
+        clients=clients(client),
+        profile=profile(),
+        instructions="Use www.example.com/report. Keep jargon minimal.",
+    )
+    assert result.decision == "publish"
+    draft_calls = [prompt for prompt, schema in client.calls if schema is Draft]
+    assert draft_calls
+    expected_text = "Use www.example.com/report. Keep jargon minimal."
+    assert all(expected_text in prompt for prompt in draft_calls)
+
+
+def test_run_pipeline_no_urls_unchanged() -> None:
+    """No URLs in topic or instructions — existing path unaffected."""
+    client = FakeClient(drafts=[long_draft()], scores=[90])
+    result = run_pipeline(
+        "Semiconductors",
+        "supply risk",
+        settings=settings(),
+        searcher=FakeSearcher(),
+        fetcher=FakeFetcher(),
+        clients=clients(client),
+        profile=profile(),
+    )
+    assert result.decision == "publish"

@@ -3,8 +3,113 @@ import {
   useClearStyleMutation,
   useGetSettingsQuery,
   useSaveStyleMutation,
+  useUpdateGenerationMutation,
 } from "../features/settings/settingsApi";
 import type { DeviceExample, StyleProfile } from "../types";
+
+const DEFAULT_TEMPERATURE = 0.8;
+const DEFAULT_TOP_P = 0.9;
+
+const TEMPERATURE_HELP =
+  "Controls how varied the writer model is. Higher values (closer to 2) make each article more creative and unpredictable while staying fact-grounded; lower values (closer to 0) produce more consistent, deterministic prose. 0.8 is a balanced default.";
+
+const TOP_P_HELP =
+  "Limits sampling to the most likely next words whose combined probability reaches this fraction, trimming the long tail of unlikely choices. Higher values allow a bit more variety; lower values keep output tighter and more predictable. 0.9 is a good default.";
+
+function Tooltip({ text }: { text: string }) {
+  return (
+    <span className="group relative ml-1.5">
+      <span
+        aria-label={text}
+        className="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-500"
+      >
+        ?
+      </span>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute bottom-full left-1/2 z-10 w-72 -translate-x-1/2 rounded-md bg-slate-800 px-3 py-2 text-xs font-normal text-white opacity-0 transition-opacity group-hover:opacity-100"
+      >
+        {text}
+      </span>
+    </span>
+  );
+}
+
+function GenerationSettings({
+  temperature,
+  topP,
+  onChange,
+  onSave,
+  saving,
+  saved,
+}: {
+  temperature: string;
+  topP: string;
+  onChange: (temperature: string, topP: string) => void;
+  onSave: () => void;
+  saving: boolean;
+  saved: boolean;
+}) {
+  return (
+    <section className="mt-6">
+      <h2 className="text-base font-semibold text-slate-800">Generation settings</h2>
+      <p className="mt-3 text-sm text-slate-500">
+        Control how much creative variation the writer model applies when drafting and editing
+        stories.
+      </p>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSave();
+        }}
+        className="mt-3 space-y-4"
+      >
+        <label className="block">
+          <span className="text-base font-medium text-slate-700">
+            Temperature
+            <Tooltip text={TEMPERATURE_HELP} />
+          </span>
+          <input
+            type="number"
+            min={0}
+            max={2}
+            step={0.1}
+            value={temperature}
+            aria-label="Temperature"
+            onChange={(event) => onChange(event.target.value, topP)}
+            className="mt-1 w-full rounded-md border border-slate-300 px-4 py-3 text-base"
+          />
+        </label>
+        <label className="block">
+          <span className="text-base font-medium text-slate-700">
+            Top-p
+            <Tooltip text={TOP_P_HELP} />
+          </span>
+          <input
+            type="number"
+            min={0}
+            max={1}
+            step={0.05}
+            value={topP}
+            aria-label="Top-p"
+            onChange={(event) => onChange(temperature, event.target.value)}
+            className="mt-1 w-full rounded-md border border-slate-300 px-4 py-3 text-base"
+          />
+        </label>
+        {saved && <p className="text-base text-green-700">Generation settings saved.</p>}
+        <div className="flex justify-end pt-1">
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-md bg-blush px-5 py-2.5 text-base font-medium text-slate-900 hover:bg-blush-dark disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save generation settings"}
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
 
 function SectionList({ title, items }: { title: string; items: string[] }) {
   if (items.length === 0) return null;
@@ -102,9 +207,15 @@ export function Settings() {
   const { data, isLoading } = useGetSettingsQuery();
   const [saveStyle, { isLoading: saving }] = useSaveStyleMutation();
   const [clearStyle, { isLoading: clearing }] = useClearStyleMutation();
+  const [updateGeneration, { isLoading: savingSampling }] = useUpdateGenerationMutation();
   const [samples, setSamples] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [analyzed, setAnalyzed] = useState<StyleProfile | null>(null);
+  const [temperature, setTemperature] = useState(
+    data?.temperature != null ? String(data.temperature) : String(DEFAULT_TEMPERATURE),
+  );
+  const [topP, setTopP] = useState(data?.top_p != null ? String(data.top_p) : String(DEFAULT_TOP_P));
+  const [samplingSaved, setSamplingSaved] = useState(false);
 
   const style = analyzed ?? data?.style ?? null;
 
@@ -130,6 +241,19 @@ export function Settings() {
     }
   };
 
+  const handleSaveSampling = async () => {
+    setError(null);
+    try {
+      await updateGeneration({
+        temperature: Number(temperature),
+        top_p: Number(topP),
+      }).unwrap();
+      setSamplingSaved(true);
+    } catch {
+      setError("Could not save generation settings. Please try again.");
+    }
+  };
+
   if (isLoading) {
     return (
       <div>
@@ -142,6 +266,19 @@ export function Settings() {
   return (
     <div className="mx-auto max-w-2xl">
       <h1 className="text-xl font-semibold text-slate-900">Settings</h1>
+
+      <GenerationSettings
+        temperature={temperature}
+        topP={topP}
+        onChange={(temp, p) => {
+          setTemperature(temp);
+          setTopP(p);
+          setSamplingSaved(false);
+        }}
+        onSave={handleSaveSampling}
+        saving={savingSampling}
+        saved={samplingSaved}
+      />
 
       <section className="mt-6">
         <h2 className="text-base font-semibold text-slate-800">Your writing style</h2>

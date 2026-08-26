@@ -11,6 +11,7 @@ from factful.agents.writer import (
     strip_claim_tags,
     write_article,
 )
+from factful.config import Settings
 from factful.schemas import (
     Citation,
     CritiqueReport,
@@ -18,6 +19,7 @@ from factful.schemas import (
     FactVerdict,
     Issue,
     SourceBundle,
+    UserSourcePage,
 )
 from factful.style.io import load_profile
 from factful.style.schema import StyleExtraction, StyleMetrics, StyleProfile
@@ -134,7 +136,110 @@ def test_build_writer_prompt_strips_instructions_whitespace() -> None:
     assert "  Keep jargon minimal.  " not in prompt
 
 
-def test_extract_referenced_claims_in_order_deduplicated() -> None:
+# ---- user source pages in writer prompt -----------------------------------
+
+
+def test_build_writer_prompt_omits_user_page_section_when_empty() -> None:
+    prompt = build_writer_prompt(make_bundle(), profile())
+    # The writer instructions mention user pages, but the section with its
+    # "Background article" header only appears when there are actual pages.
+    assert "Background article provided by user" not in prompt
+    assert "Output schema" in prompt  # sanity: prompt continues past instructions
+
+
+def test_build_writer_prompt_includes_user_page_text() -> None:
+    bundle = SourceBundle(
+        topic="Semiconductors",
+        angle="supply risk",
+        citations=[
+            Citation(
+                claim_id="c1",
+                claim="Revenue hit $4B in 2024",
+                source_url="https://example.com/report",
+                source_title="Annual Report",
+                publisher="example.com",
+                publish_date="2024-01-01",
+                key_stat="$4B",
+                quote_snippet="Revenue hit $4B in 2024.",
+                passage_ref="para-2",
+                retrieved_at=datetime(2024, 1, 2, tzinfo=UTC),
+            )
+        ],
+        user_source_pages=[
+            UserSourcePage(
+                url="https://example.com/article",
+                title="Full Analysis",
+                text=(
+                    "The semiconductor industry is experiencing unprecedented growth. "
+                    "Chip demand rose 27% in Q3 alone as AI workloads expand. "
+                    "Supply chain constraints from geopolitics are shifting "
+                    "production to Southeast Asia."
+                ),
+            ),
+        ],
+    )
+    prompt = build_writer_prompt(bundle, profile())
+    assert "Background article provided by user" in prompt
+    assert "https://example.com/article" in prompt
+    assert "Full Analysis" in prompt
+    assert "unprecedented growth" in prompt
+    assert "Chip demand rose 27%" in prompt
+
+
+def test_build_writer_prompt_truncates_long_user_page() -> None:
+    long_text = "Sentence one. " * 5000
+    bundle = SourceBundle(
+        topic="t",
+        angle="a",
+        citations=[],
+        user_source_pages=[
+            UserSourcePage(url="https://x.com/a", title="Long", text=long_text),
+        ],
+    )
+    # Override the per-page char limit to a low value.
+    cfg = Settings()
+    cfg.writer.max_user_page_chars = 500
+    prompt = build_writer_prompt(bundle, profile(), settings=cfg)
+    pages_section_start = prompt.find("Background article provided by user")
+    section = prompt[pages_section_start:]
+    assert len(section) < 5000  # truncated below raw length
+
+
+def test_build_writer_prompt_respects_max_total_chars() -> None:
+    page_a = UserSourcePage(url="https://a.example", title="A", text="Wordy " * 3000)
+    page_b = UserSourcePage(url="https://b.example", title="B", text="Verbose " * 3000)
+    bundle = SourceBundle(
+        topic="t",
+        angle="a",
+        citations=[],
+        user_source_pages=[page_a, page_b],
+    )
+    cfg = Settings()
+    cfg.writer.max_user_page_chars = 10000
+    cfg.writer.max_user_total_chars = 100
+    prompt = build_writer_prompt(bundle, profile(), settings=cfg)
+    # total budget of 100 chars means only a tiny portion of page A fits
+    assert "b.example" not in prompt  # page B should be excluded entirely
+
+
+def test_build_writer_prompt_multiple_user_pages() -> None:
+    bundle = SourceBundle(
+        topic="t",
+        angle="a",
+        citations=[],
+        user_source_pages=[
+            UserSourcePage(url="https://a.example", title="A", text="First article content."),
+            UserSourcePage(url="https://b.example", title="B", text="Second article content."),
+        ],
+    )
+    prompt = build_writer_prompt(bundle, profile())
+    assert "Background article provided by user" in prompt
+    assert "https://a.example" in prompt
+    assert "https://b.example" in prompt
+    assert "First article content." in prompt
+    assert "Second article content." in prompt
+
+    # ---- claim extraction -----------------------------------------------------
     md = "Intro. [[c1]] and more [[c2]], then [[c1]] again."
     assert extract_referenced_claims(md) == ["c1", "c2"]
 
@@ -201,9 +306,11 @@ class FakeClient:
     def __init__(self, draft: Draft) -> None:
         self.draft = draft
         self.calls: list[tuple[str, type]] = []
+        self.kwargs: list[dict[str, object]] = []
 
-    def chat_completion(self, *, prompt: str, schema: type) -> Draft:
+    def chat_completion(self, *, prompt: str, schema: type, **kwargs: object) -> Draft:
         self.calls.append((prompt, schema))
+        self.kwargs.append(kwargs)
         return self.draft
 
 
@@ -228,6 +335,51 @@ def test_write_article_normalizes_collapsed_markdown() -> None:
     client = FakeClient(collapsed)
     result = write_article(make_bundle(), profile(), client=client)
     assert "\n\n" in result.markdown
+
+
+def test_write_article_forwards_sampling_params() -> None:
+    draft = Draft(title="Chips", markdown="Market grew [[c1]].")
+    client = FakeClient(draft)
+    write_article(make_bundle(), profile(), client=client, temperature=0.7, top_p=0.85)
+    assert client.kwargs[0] == {"temperature": 0.7, "top_p": 0.85}
+
+
+def test_write_article_defaults_sampling_from_settings() -> None:
+    draft = Draft(title="Chips", markdown="Market grew [[c1]].")
+    client = FakeClient(draft)
+    write_article(make_bundle(), profile(), client=client)
+    assert client.kwargs[0] == {"temperature": 0.8, "top_p": 0.9}
+
+
+def test_revise_article_forwards_sampling_params() -> None:
+    draft = Draft(title="Chips", markdown="Market grew 12% [[c1]].")
+    revised = Draft(title="Chips", markdown="Market grew 15% [[c1]].")
+    client = FakeClient(revised)
+    revise_article(
+        draft,
+        make_verdicts(),
+        make_critique(),
+        make_bundle(),
+        profile(),
+        client=client,
+        temperature=0.9,
+        top_p=0.8,
+    )
+    assert client.kwargs[0] == {"temperature": 0.9, "top_p": 0.8}
+
+
+def test_apply_user_edit_forwards_sampling_params() -> None:
+    edited = Draft(title="Chips", markdown="Chips are scarce.")
+    client = FakeClient(edited)
+    apply_user_edit(
+        "Chips are scarce.",
+        "Tighten the prose",
+        profile(),
+        client=client,
+        temperature=0.6,
+        top_p=0.7,
+    )
+    assert client.kwargs[0] == {"temperature": 0.6, "top_p": 0.7}
 
 
 def test_revise_article_normalizes_collapsed_markdown() -> None:

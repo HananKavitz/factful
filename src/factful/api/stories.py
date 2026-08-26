@@ -50,6 +50,7 @@ def create_story(
     runner = request.app.state.generation_runner
     record = job_store.create(user_id=user.id)
     style_profile = _profile_for(user.id, sessions)
+    temperature, top_p = _sampling_for(user.id, sessions)
     job_store.submit(
         record,
         lambda rec: runner(
@@ -60,6 +61,8 @@ def create_story(
                 angle=body.angle,
                 instructions=body.instructions,
                 style_profile=style_profile,
+                temperature=temperature,
+                top_p=top_p,
             ),
         ),
     )
@@ -109,11 +112,14 @@ def edit_story(
 ) -> StoryDetail:
     editor: Editor = request.app.state.editor
     style = _profile_for(user.id, sessions)
+    temperature, top_p = _sampling_for(user.id, sessions)
     with sessions() as db:
         story = _owned_story(db, story_id, user.id)
         if story is None:
             raise HTTPException(status_code=404, detail="story not found")
-        story.markdown = editor(story.markdown, body.prompt, style)
+        story.markdown = editor(
+            story.markdown, body.prompt, style, temperature=temperature, top_p=top_p
+        )
         story.title = extract_title(story.markdown, story.title)
         db.commit()
         db.refresh(story)
@@ -140,6 +146,14 @@ def _profile_for(user_id: int, sessions: Sessions) -> StyleProfile | None:
         if user is None or user.style_profile is None:
             return None
         return StyleProfile.model_validate_json(user.style_profile)
+
+
+def _sampling_for(user_id: int, sessions: Sessions) -> tuple[float | None, float | None]:
+    with sessions() as db:
+        user = db.get(User, user_id)
+        if user is None:
+            return None, None
+        return user.temperature, user.top_p
 
 
 def _owned_story(db: Session, story_id: int, user_id: int) -> Story | None:

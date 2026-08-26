@@ -70,6 +70,12 @@ def test_retrieval_verify_writer_overridable() -> None:
     assert settings.writer.profile == "voice"
 
 
+def test_writer_sampling_defaults() -> None:
+    writer = Settings().writer
+    assert writer.temperature == 0.8
+    assert writer.top_p == 0.9
+
+
 def test_writer_word_bounds_defaults() -> None:
     writer = Settings().writer
     assert writer.min_words == 1500
@@ -88,6 +94,23 @@ def test_writer_word_bounds_reject_unordered_range() -> None:
         Settings.model_validate(
             {"writer": {"min_words": 2000, "target_words": 1200, "max_words": 1800}}
         )
+
+
+def test_writer_sampling_overridable() -> None:
+    settings = Settings.model_validate({"writer": {"temperature": 1.1, "top_p": 0.7}})
+    assert settings.writer.temperature == 1.1
+    assert settings.writer.top_p == 0.7
+
+
+def test_writer_sampling_rejects_out_of_bounds() -> None:
+    with pytest.raises(ValidationError):
+        Settings.model_validate({"writer": {"temperature": -0.1}})
+    with pytest.raises(ValidationError):
+        Settings.model_validate({"writer": {"temperature": 2.1}})
+    with pytest.raises(ValidationError):
+        Settings.model_validate({"writer": {"top_p": 0.0}})
+    with pytest.raises(ValidationError):
+        Settings.model_validate({"writer": {"top_p": 1.1}})
 
 
 def test_unknown_key_fails_fast() -> None:

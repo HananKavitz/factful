@@ -70,4 +70,6 @@ export interface StyleProfile {
 
 export interface Settings {
   style: StyleProfile | null;
+  temperature: number | null;
+  top_p: number | null;
 }

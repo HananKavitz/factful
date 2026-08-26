@@ -116,6 +116,8 @@ Set the keys in your `.env` (see `.env.example`); without Substack credentials t
 
 ```sh
 uv sync                                   # install deps
+uv run uvicorn factful.api:app --reload   # backend API (port 8000)
+cd frontend && npm run dev                # frontend dev server (proxies /api -> 8000)
 uv run pytest                             # run tests with coverage
 uv run ruff check .                       # lint
 uv run ruff format --check .              # format check

@@ -37,7 +37,14 @@ def _response_format(schema: type[BaseModel]) -> dict[str, object]:
 
 
 class ChatClient(Protocol):
-    def chat_completion(self, *, prompt: str, schema: type[BaseModel]) -> BaseModel: ...
+    def chat_completion(
+        self,
+        *,
+        prompt: str,
+        schema: type[BaseModel],
+        temperature: float | None = None,
+        top_p: float | None = None,
+    ) -> BaseModel: ...
 
 
 class OpenRouterClient:
@@ -74,19 +81,31 @@ class OpenRouterClient:
             return
         self._sleep(self._backoff_delay(attempt))
 
-    def chat_completion(self, *, prompt: str, schema: type[BaseModel]) -> BaseModel:
+    def chat_completion(
+        self,
+        *,
+        prompt: str,
+        schema: type[BaseModel],
+        temperature: float | None = None,
+        top_p: float | None = None,
+    ) -> BaseModel:
         client = self._client or httpx.Client(timeout=self._timeout)
         attempts = self._max_retries + 1
         for attempt in range(attempts):
             try:
+                payload: dict[str, object] = {
+                    "model": self._model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "response_format": _response_format(schema),
+                }
+                if temperature is not None:
+                    payload["temperature"] = temperature
+                if top_p is not None:
+                    payload["top_p"] = top_p
                 response = client.post(
                     self._base_url,
                     headers={"Authorization": f"Bearer {self._api_key}"},
-                    json={
-                        "model": self._model,
-                        "messages": [{"role": "user", "content": prompt}],
-                        "response_format": _response_format(schema),
-                    },
+                    json=payload,
                 )
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:

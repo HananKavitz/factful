@@ -58,11 +58,26 @@ def test_builds_expected_request_body() -> None:
     assert captured["auth"] == "Bearer k"
     assert captured["body"]["model"] == "m"
     assert captured["body"]["messages"] == [{"role": "user", "content": "hello"}]
+    assert "temperature" not in captured["body"]
+    assert "top_p" not in captured["body"]
     assert captured["body"]["response_format"] == {
         "type": "json_schema",
         "json_schema": {"name": "Dummy", "schema": Dummy.model_json_schema()},
     }
     assert captured["url"] == "https://openrouter.ai/api/v1/chat/completions"
+
+
+def test_includes_sampling_params_when_set() -> None:
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"name":"x"}'}}]})
+
+    _client(handler).chat_completion(prompt="p", schema=Dummy, temperature=0.8, top_p=0.9)
+
+    assert captured["body"]["temperature"] == 0.8
+    assert captured["body"]["top_p"] == 0.9
 
 
 def test_uses_full_endpoint_when_base_url_lacks_path() -> None:

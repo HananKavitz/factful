@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Literal
 
+from factful.agents._urls import extract_urls
 from factful.agents.critic import critique, word_count
 from factful.agents.factcheck import factcheck_article
 from factful.agents.fetch import Fetcher
@@ -86,10 +87,15 @@ def run_pipeline(
     max_sources: int | None = None,
     today: date | None = None,
     instructions: str | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
     on_progress: Callable[[str], None] | None = None,
 ) -> PipelineResult:
     progress = on_progress or _noop_progress
     progress("gathering sources")
+
+    user_urls = list(dict.fromkeys(extract_urls(topic) + extract_urls(instructions or "")))
+
     bundle = gather(
         topic,
         angle,
@@ -99,6 +105,7 @@ def run_pipeline(
         settings=settings,
         max_sources=max_sources,
         today=today,
+        user_urls=user_urls or None,
     )
     state = PipelineState(topic=topic, angle=angle, source_bundle=bundle)
     logger.info("gathered %d citations", len(state.citations))
@@ -117,6 +124,8 @@ def run_pipeline(
                 settings=settings,
                 instructions=instructions,
                 today=today,
+                temperature=temperature,
+                top_p=top_p,
             )
             logger.info("pass %d: wrote draft", pass_)
         else:
@@ -132,6 +141,8 @@ def run_pipeline(
                 settings=settings,
                 instructions=instructions,
                 today=today,
+                temperature=temperature,
+                top_p=top_p,
             )
             logger.info("pass %d: revised draft", pass_)
 

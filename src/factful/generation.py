@@ -26,6 +26,8 @@ class GenerationRequest:
     angle: str | None
     instructions: str | None
     style_profile: StyleProfile | None = None
+    temperature: float | None = None
+    top_p: float | None = None
 
 
 GenerationRunner = Callable[[JobRecord, GenerationRequest], None]
@@ -67,6 +69,8 @@ def run_generation(
             clients=runtime.clients,
             profile=request.style_profile or neutral_profile(),
             instructions=request.instructions,
+            temperature=request.temperature,
+            top_p=request.top_p,
             on_progress=progress,
         )
     except PipelineCancelledError:

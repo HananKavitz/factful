@@ -21,7 +21,7 @@ def test_build_editor_strips_claim_tags_from_result(monkeypatch) -> None:
     monkeypatch.setattr(
         editing,
         "apply_user_edit",
-        lambda markdown, prompt, profile, *, client, settings: Draft(
+        lambda markdown, prompt, profile, *, client, settings, **kwargs: Draft(
             title="T", markdown=f"{prompt} [[c1]] revised"
         ),
     )
@@ -40,7 +40,7 @@ def test_build_editor_passes_client_and_profile(monkeypatch) -> None:
     monkeypatch.setattr(
         editing,
         "apply_user_edit",
-        lambda markdown, prompt, profile, *, client, settings: (
+        lambda markdown, prompt, profile, *, client, settings, **kwargs: (
             captured.update(
                 markdown=markdown, prompt=prompt, profile=profile, client=client, settings=settings
             )
@@ -66,7 +66,7 @@ def test_build_editor_falls_back_to_neutral_profile(monkeypatch) -> None:
     monkeypatch.setattr(
         editing,
         "apply_user_edit",
-        lambda markdown, prompt, profile, *, client, settings: (
+        lambda markdown, prompt, profile, *, client, settings, **kwargs: (
             captured.update(profile=profile) or Draft(title="T", markdown="result")
         ),
     )
@@ -75,3 +75,31 @@ def test_build_editor_falls_back_to_neutral_profile(monkeypatch) -> None:
     edit("body", "rewrite the lead")
 
     assert captured["profile"].name == "neutral"
+
+
+def test_build_editor_forwards_sampling_params(monkeypatch) -> None:
+    clients = type("Clients", (), {"writer": "writer-client"})()
+    runtime = RuntimeStub(settings="settings", searcher=None, fetcher=None, clients=clients)
+    monkeypatch.setattr(editing, "build_runtime", lambda env: runtime)
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        editing,
+        "apply_user_edit",
+        lambda markdown, prompt, profile, *, client, settings, temperature, top_p: (
+            captured.update(
+                temperature=temperature,
+                top_p=top_p,
+                client=client,
+                settings=settings,
+            )
+            or Draft(title="T", markdown="result")
+        ),
+    )
+
+    edit = editing.build_editor(env={})
+    edit("body", "rewrite the lead", "profile", 0.65, 0.8)
+
+    assert captured["temperature"] == 0.65
+    assert captured["top_p"] == 0.8
+    assert captured["client"] == "writer-client"
+    assert captured["settings"] == "settings"

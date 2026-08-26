@@ -45,11 +45,46 @@ def test_get_settings_requires_auth(client: TestClient) -> None:
     assert client.get("/api/settings").status_code == 401
 
 
-def test_get_settings_returns_null_when_unset(client: TestClient) -> None:
+def test_get_settings_returns_defaults_when_unset(client: TestClient) -> None:
     login(client)
     response = client.get("/api/settings")
     assert response.status_code == 200
-    assert response.json()["style"] is None
+    body = response.json()
+    assert body["style"] is None
+    assert body["temperature"] == 0.8
+    assert body["top_p"] == 0.9
+
+
+def test_update_generation_settings_requires_auth(client: TestClient) -> None:
+    assert (
+        client.put("/api/settings/generation", json={"temperature": 1.0, "top_p": 0.8}).status_code
+        == 401
+    )
+
+
+def test_update_generation_settings_persists(client: TestClient) -> None:
+    login(client)
+    response = client.put("/api/settings/generation", json={"temperature": 1.1, "top_p": 0.7})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["temperature"] == 1.1
+    assert body["top_p"] == 0.7
+
+    fetched = client.get("/api/settings").json()
+    assert fetched["temperature"] == 1.1
+    assert fetched["top_p"] == 0.7
+
+
+def test_update_generation_settings_validates_bounds(client: TestClient) -> None:
+    login(client)
+    assert (
+        client.put("/api/settings/generation", json={"temperature": 3.0, "top_p": 0.8}).status_code
+        == 422
+    )
+    assert (
+        client.put("/api/settings/generation", json={"temperature": 0.8, "top_p": 1.5}).status_code
+        == 422
+    )
 
 
 def test_analyze_and_save_persists_profile(client: TestClient) -> None:

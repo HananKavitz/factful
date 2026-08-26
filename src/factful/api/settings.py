@@ -9,7 +9,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session, sessionmaker
 
 from factful.api.deps import get_current_user, get_sessions
-from factful.api.schemas import SettingsOut, UpdateStyleRequest
+from factful.api.schemas import (
+    SettingsOut,
+    UpdateGenerationSettingsRequest,
+    UpdateStyleRequest,
+)
 from factful.config import Settings
 from factful.llm import ModelRouter, OpenRouterClient
 from factful.models import User
@@ -47,12 +51,48 @@ def _get_profile(db: Session, user_id: int) -> StyleProfile | None:
     return StyleProfile.model_validate_json(user.style_profile)
 
 
+def _sampling_defaults(settings: Settings) -> tuple[float, float]:
+    return settings.writer.temperature, settings.writer.top_p
+
+
 @router.get("", response_model=SettingsOut)
 def get_settings(
-    user: Annotated[User, Depends(get_current_user)], sessions: Sessions
+    request: Request,
+    user: Annotated[User, Depends(get_current_user)],
+    sessions: Sessions,
+) -> SettingsOut:
+    sampler = _sampling_defaults(request.app.state.settings)
+    with sessions() as db:
+        current = db.get(User, user.id)
+        return SettingsOut(
+            style=_get_profile(db, user.id),
+            temperature=(
+                current.temperature if current and current.temperature is not None else sampler[0]
+            ),
+            top_p=(current.top_p if current and current.top_p is not None else sampler[1]),
+        )
+
+
+@router.put("/generation", response_model=SettingsOut)
+def update_generation_settings(
+    body: UpdateGenerationSettingsRequest,
+    request: Request,
+    user: Annotated[User, Depends(get_current_user)],
+    sessions: Sessions,
 ) -> SettingsOut:
     with sessions() as db:
-        return SettingsOut(style=_get_profile(db, user.id))
+        profile = _get_profile(db, user.id)
+        current = db.get(User, user.id)
+        if current is None:
+            raise HTTPException(status_code=401, detail="not authenticated")
+        current.temperature = body.temperature
+        current.top_p = body.top_p
+        db.commit()
+    return SettingsOut(
+        style=profile,
+        temperature=body.temperature,
+        top_p=body.top_p,
+    )
 
 
 @router.post("/style", response_model=SettingsOut)
