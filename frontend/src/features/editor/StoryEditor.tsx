@@ -1,17 +1,23 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   useDeleteStoryMutation,
   useEditStoryMutation,
   useGenerateNoteMutation,
   useGetStoryQuery,
+  useRenderVideoMutation,
   useUpdateStoryMutation,
 } from "../stories/storiesApi";
+import { useGetJobQuery } from "../jobs/jobsApi";
 import { CreateStoryModal } from "../gallery/CreateStoryModal";
 import { NoteModal } from "./NoteModal";
+import { VideoTab } from "./VideoTab";
 import type { StoryDetail } from "../../types";
 
 const SAVE_DELAY_MS = 800;
+const VIDEO_POLL_INTERVAL_MS = 2000;
+
+type TabId = "story" | "video";
 
 export function useDebouncedValue<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -52,6 +58,7 @@ function EditorForm({ story }: EditorFormProps) {
   const [editStory, { isLoading: editing }] = useEditStoryMutation();
   const [deleteStory, { isLoading: deleting }] = useDeleteStoryMutation();
   const [generateNote, { isLoading: generatingNote }] = useGenerateNoteMutation();
+  const [renderVideo, { isLoading: renderingVideo }] = useRenderVideoMutation();
   const navigate = useNavigate();
 
   const [title, setTitle] = useState(story.title);
@@ -64,6 +71,52 @@ function EditorForm({ story }: EditorFormProps) {
   const [generatedNote, setGeneratedNote] = useState<string | null>(null);
   const [noteError, setNoteError] = useState<string | null>(null);
   const [noteInstructions, setNoteInstructions] = useState("");
+  const [activeTab, setActiveTab] = useState<TabId>("story");
+
+  // Video state
+  const [videoJobId, setVideoJobId] = useState<string | null>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const [selectedVideoId, setSelectedVideoId] = useState<number | null>(null);
+  const [selectedVoice, setSelectedVoice] = useState(
+    // Default to the last used voice if there's a playable video
+    (story.videos ?? []).find((v) => v.status === "completed")?.voice ?? "en-US-AriaNeural"
+  );
+
+  const { data: videoJob } = useGetJobQuery(videoJobId ?? "", {
+    skip: !videoJobId,
+    pollingInterval: VIDEO_POLL_INTERVAL_MS,
+  });
+
+  const playableVideos = (story.videos ?? []).filter(
+    (v) => v.status === "completed" && v.file_exists
+  );
+
+  const hasPlayable = playableVideos.length > 0;
+  const selectedVideo = hasPlayable
+    ? playableVideos.find((v) => v.id === selectedVideoId) ?? playableVideos[0]
+    : null;
+
+  // Auto-select first playable video
+  useEffect(() => {
+    if (hasPlayable && !selectedVideoId) {
+      setSelectedVideoId(playableVideos[0].id);
+    }
+  }, [hasPlayable, playableVideos, selectedVideoId]);
+
+  // Handle job completion
+  useEffect(() => {
+    if (!videoJob) return;
+    if (videoJob.status === "done") {
+      setVideoJobId(null);
+      setVideoError(null);
+    } else if (videoJob.status === "error") {
+      setVideoJobId(null);
+      setVideoError(videoJob.error ?? "Video rendering failed.");
+    } else if (videoJob.status === "cancelled") {
+      setVideoJobId(null);
+      setVideoError("Video rendering was cancelled.");
+    }
+  }, [videoJob]);
 
   const debouncedTitle = useDebouncedValue(title, SAVE_DELAY_MS);
   const debouncedMarkdown = useDebouncedValue(markdown, SAVE_DELAY_MS);
@@ -137,7 +190,23 @@ function EditorForm({ story }: EditorFormProps) {
     }
   };
 
+  const handleRenderVideo = useCallback(async () => {
+    setVideoError(null);
+    setVideoJobId(null);
+    try {
+      const job = await renderVideo({ id: story.id, body: { voice: selectedVoice } }).unwrap();
+      setVideoJobId(job.job_id);
+    } catch {
+      setVideoError("Failed to start video render.");
+    }
+  }, [story.id, renderVideo, selectedVoice]);
+
   const wordCount = markdown.trim() ? markdown.trim().split(/\s+/).length : 0;
+
+  const isRendering =
+    renderingVideo ||
+    (videoJob !== undefined &&
+      (videoJob.status === "queued" || videoJob.status === "running"));
 
   return (
     <div className="flex h-full flex-col space-y-4">
@@ -167,6 +236,30 @@ function EditorForm({ story }: EditorFormProps) {
             Delete
           </button>
         </div>
+      </div>
+
+      {/* Tab bar — common to all tabs */}
+      <div className="flex shrink-0 border-b border-slate-200">
+        <button
+          onClick={() => setActiveTab("story")}
+          className={`px-4 py-2 text-sm font-medium ${
+            activeTab === "story"
+              ? "border-b-2 border-slate-900 text-slate-900"
+              : "text-slate-500 hover:text-slate-700"
+          }`}
+        >
+          Story
+        </button>
+        <button
+          onClick={() => setActiveTab("video")}
+          className={`px-4 py-2 text-sm font-medium ${
+            activeTab === "video"
+              ? "border-b-2 border-slate-900 text-slate-900"
+              : "text-slate-500 hover:text-slate-700"
+          }`}
+        >
+          Video
+        </button>
       </div>
 
       {regenerateOpen && (
@@ -229,72 +322,92 @@ function EditorForm({ story }: EditorFormProps) {
         />
       )}
 
-      <input
-        value={title}
-        onChange={(event) => setTitle(event.target.value)}
-        placeholder="Title"
-        className={`${inputClass} shrink-0`}
-      />
-
-      <textarea
-        value={markdown}
-        onChange={(event) => setMarkdown(event.target.value)}
-        className={`${inputClass} min-h-0 flex-1 resize-none font-mono text-xs leading-relaxed`}
-      />
-      <div className="-mt-3 flex shrink-0 justify-end">
-        <span className="text-xs text-slate-400">
-          {wordCount} {wordCount === 1 ? "word" : "words"}
-        </span>
-      </div>
-
-      <form
-        onSubmit={handlePromptEdit}
-        className="shrink-0 rounded-lg border border-slate-200 bg-white p-4"
-      >
-        <label className="block">
-          <span className="text-sm font-medium text-slate-700">
-            Ask for an edit
-          </span>
-          <textarea
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            rows={2}
-            placeholder="e.g. Shorten the lead to one sentence"
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+      {activeTab === "story" && (
+        <>
+          <input
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder="Title"
+            className={`${inputClass} shrink-0`}
           />
-        </label>
-        <div className="mt-2 flex justify-end">
-          <button
-            type="submit"
-            disabled={editing || !prompt.trim()}
-            className="inline-flex items-center gap-2 rounded-md bg-blush px-4 py-2 text-sm font-medium text-slate-900 hover:bg-blush-dark disabled:opacity-50"
+
+          <textarea
+            value={markdown}
+            onChange={(event) => setMarkdown(event.target.value)}
+            className={`${inputClass} min-h-0 flex-1 resize-none font-mono text-xs leading-relaxed`}
+          />
+          <div className="-mt-3 flex shrink-0 justify-end">
+            <span className="text-xs text-slate-400">
+              {wordCount} {wordCount === 1 ? "word" : "words"}
+            </span>
+          </div>
+
+          <form
+            onSubmit={handlePromptEdit}
+            className="shrink-0 rounded-lg border border-slate-200 bg-white p-4"
           >
-            {editing && (
-              <svg
-                className="h-4 w-4 animate-spin"
-                viewBox="0 0 24 24"
-                fill="none"
-                aria-hidden="true"
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700">
+                Ask for an edit
+              </span>
+              <textarea
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                rows={2}
+                placeholder="e.g. Shorten the lead to one sentence"
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <div className="mt-2 flex justify-end">
+              <button
+                type="submit"
+                disabled={editing || !prompt.trim()}
+                className="inline-flex items-center gap-2 rounded-md bg-blush px-4 py-2 text-sm font-medium text-slate-900 hover:bg-blush-dark disabled:opacity-50"
               >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-                />
-              </svg>
-            )}
-            {editing ? "Editing…" : "Apply edit"}
-          </button>
-        </div>
-      </form>
+                {editing && (
+                  <svg
+                    className="h-4 w-4 animate-spin"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                    />
+                  </svg>
+                )}
+                {editing ? "Editing…" : "Apply edit"}
+              </button>
+            </div>
+          </form>
+        </>
+      )}
+
+      {activeTab === "video" && (
+        <VideoTab
+          voice={selectedVoice}
+          onVoiceChange={setSelectedVoice}
+          playableVideos={playableVideos}
+          selectedVideo={selectedVideo}
+          selectedVideoId={selectedVideoId}
+          onSelectedVideoIdChange={setSelectedVideoId}
+          hasPlayable={hasPlayable}
+          videos={story.videos ?? []}
+          isRendering={isRendering}
+          onRenderVideo={handleRenderVideo}
+          videoError={videoError}
+        />
+      )}
     </div>
   );
 }

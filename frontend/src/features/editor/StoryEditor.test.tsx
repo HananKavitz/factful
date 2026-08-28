@@ -1,4 +1,4 @@
-﻿import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { configureStore } from "@reduxjs/toolkit";
 import userEvent from "@testing-library/user-event";
 import { Provider } from "react-redux";
@@ -13,6 +13,7 @@ const hooks = vi.hoisted(() => ({
   editing: false,
   deleting: false,
   generatingNote: false,
+  renderingVideo: false,
   generatedNote: null as string | null,
   updateStory: vi.fn(() => ({
     unwrap: () => Promise.resolve(hooks.story),
@@ -32,6 +33,9 @@ const hooks = vi.hoisted(() => ({
   generateNote: vi.fn(() => ({
     unwrap: () => Promise.resolve({ note: hooks.generatedNote ?? "Check out this story!" }),
   })),
+  renderVideo: vi.fn(() => ({
+    unwrap: () => Promise.resolve({ job_id: "video-job-1" }),
+  })),
 }));
 
 vi.mock("../stories/storiesApi", () => ({
@@ -44,6 +48,7 @@ vi.mock("../stories/storiesApi", () => ({
   useDeleteStoryMutation: () => [hooks.deleteStory, { isLoading: hooks.deleting }],
   useCreateStoryMutation: () => [hooks.createStory, { isLoading: false }],
   useGenerateNoteMutation: () => [hooks.generateNote, { isLoading: hooks.generatingNote }],
+  useRenderVideoMutation: () => [hooks.renderVideo, { isLoading: hooks.renderingVideo }],
 }));
 
 vi.mock("../jobs/jobsApi", () => ({
@@ -63,6 +68,7 @@ const story: StoryDetail = {
   angle: null,
   instructions: null,
   markdown: "# Chips\n\nDemand is rising.",
+  videos: [],
 };
 
 function renderEditor() {
@@ -211,6 +217,91 @@ describe("StoryEditor", () => {
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(hooks.deleteStory).not.toHaveBeenCalled();
     expect(screen.queryByText("Delete this story?")).not.toBeInTheDocument();
+  });
+
+  it("shows the Story tab by default", () => {
+    renderEditor();
+    const storyTab = screen.getByRole("button", { name: "Story" });
+    const videoTab = screen.getByRole("button", { name: "Video" });
+
+    expect(storyTab.className).toContain("border-slate-900");
+    expect(videoTab.className).not.toContain("border-slate-900");
+    expect(screen.getByPlaceholderText("Title")).toBeInTheDocument();
+  });
+
+  it("switches to the Video tab when clicked", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    await user.click(screen.getByRole("button", { name: "Video" }));
+
+    const storyTab = screen.getByRole("button", { name: "Story" });
+    const videoTab = screen.getByRole("button", { name: "Video" });
+
+    expect(videoTab.className).toContain("border-slate-900");
+    expect(storyTab.className).not.toContain("border-slate-900");
+    expect(screen.getByText("Video Generation")).toBeInTheDocument();
+  });
+
+  it("hides the story editor when switching to the Video tab", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    expect(screen.getByPlaceholderText("Title")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Video" }));
+
+    expect(screen.queryByPlaceholderText("Title")).not.toBeInTheDocument();
+  });
+
+  it("switches back to the Story tab from the Video tab", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    await user.click(screen.getByRole("button", { name: "Video" }));
+    expect(screen.getByText("Video Generation")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Story" }));
+    expect(screen.getByPlaceholderText("Title")).toBeInTheDocument();
+  });
+
+  it("renders the Render Video button in the Video tab when there are no videos", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    await user.click(screen.getByRole("button", { name: "Video" }));
+    expect(
+      screen.getByRole("button", { name: "Render Video" }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the video player in the Video tab when playable videos exist", async () => {
+    hooks.story = {
+      ...story,
+      videos: [
+        {
+          id: 1,
+          url: "https://example.com/video.mp4",
+          voice: "en-US-AriaNeural",
+          duration_seconds: 120,
+          file_size_bytes: 5_000_000,
+          resolution: "1920x1080",
+          status: "completed",
+          error_message: null,
+          file_exists: true,
+          created_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+    };
+    const user = userEvent.setup();
+    renderEditor();
+
+    await user.click(screen.getByRole("button", { name: "Video" }));
+    // The tab button also says "Video", so use the heading inside the video player card
+    expect(screen.getByRole("heading", { name: "Video" })).toBeInTheDocument();
+    const videoElement = document.querySelector("video");
+    expect(videoElement).not.toBeNull();
+    expect(videoElement!.getAttribute("src")).toBe("https://example.com/video.mp4");
   });
 
   it("deletes the story and navigates to the gallery", async () => {
