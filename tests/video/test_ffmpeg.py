@@ -22,6 +22,7 @@ class TestEnsureFfmpeg:
         with (
             patch("factful.video.ffmpeg.shutil.which", return_value=None),
             patch("factful.video.ffmpeg._bundled_ffmpeg_path") as mock_path,
+            patch("factful.video.ffmpeg._ensure_executable"),
         ):
             bundled = Path("/fake/bundled/ffmpeg")
             mock_path.return_value = bundled
@@ -53,6 +54,7 @@ class TestInstallFfmpeg:
         with (
             patch("factful.video.ffmpeg._bundled_ffmpeg_path") as mock_path,
             patch.object(Path, "exists", return_value=False),
+            patch.object(Path, "mkdir"),
             patch.dict(sys.modules, {"ffmpeg_downloader": None}),
         ):
             mock_path.return_value = Path("/fake/ffmpeg")
@@ -65,6 +67,7 @@ class TestInstallFfmpeg:
         with (
             patch("factful.video.ffmpeg._bundled_ffmpeg_path", return_value=bundled),
             patch.object(Path, "exists", return_value=False),
+            patch.object(Path, "mkdir"),
             patch("factful.video.ffmpeg.subprocess.run") as mock_run,
         ):
             mock_run.return_value.returncode = 1
