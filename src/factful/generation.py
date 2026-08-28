@@ -294,6 +294,9 @@ def run_video_render(
         db.add(video)
         db.commit()
 
+        # Mark the job done so the frontend stops polling
+        record.set_story_id(story_id)
+
 
 def build_video_renderer(
     *,
