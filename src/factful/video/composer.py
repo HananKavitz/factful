@@ -57,7 +57,7 @@ def compose_video(
     ensure_ffmpeg()
 
     try:
-        from moviepy import (
+        from moviepy import (  # type: ignore[import-untyped]
             AudioClip,
             AudioFileClip,
             CompositeVideoClip,
@@ -163,7 +163,7 @@ def _make_caption_clip(
 
         margin = int(width * 0.06)  # 6% horizontal padding
         font_size = min(width // 42, 40)
-        return (
+        clip: object = (
             TextClip(
                 text=text,
                 font_size=font_size,
@@ -176,5 +176,6 @@ def _make_caption_clip(
             .with_position(("center", height * 0.7))
             .with_duration(duration)
         )
+        return clip
     except ImportError:
         return None

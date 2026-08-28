@@ -72,7 +72,7 @@ def build_note_generator(*, env: Mapping[str, str]) -> NoteGenerator:
             markdown=markdown,
             instructions_block=_instructions_block(instructions),
         )
-        result = runtime.clients.writer.chat_completion(
+        result = runtime.clients.writer.chat_completion(  # type: ignore[attr-defined]
             prompt=prompt,
             schema=NoteOutput,
             temperature=0.7,

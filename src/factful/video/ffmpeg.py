@@ -1,5 +1,7 @@
 """FFmpeg binary management: PATH check, bundled fallback, and download."""
 
+# mypy: disable-error-code="import-untyped"
+
 from __future__ import annotations
 
 import shutil
@@ -60,7 +62,7 @@ def install_ffmpeg() -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        import ffmpeg_downloader  # noqa: F401  # needed for get_bin_dir below
+        import ffmpeg_downloader as _  # noqa: F401  # needed for get_bin_dir below
     except ImportError as exc:
         raise VideoRenderError(
             "ffmpeg-downloader is not installed; run `uv sync` to install dependencies"

@@ -191,10 +191,10 @@ def render_story_video(
 def get_video_file(
     story_id: int,
     video_id: int,
-    request: Request,
+    request: Request,  # noqa: ARG001  # used by FastAPI routing
     user: Annotated[User, Depends(get_current_user)],
     sessions: Sessions,
-):
+) -> FileResponse:
     with sessions() as db:
         story = _owned_story(db, story_id, user.id)
         if story is None:
