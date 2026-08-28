@@ -39,3 +39,12 @@ web:
   session_secret: dev-secret-change-me
   google_client_id: ""
   google_client_secret: ""
+
+video:
+  fps: 1
+  width: 640
+  height: 360
+  min_slide_seconds: 5.0
+  voice: en-US-AriaNeural
+  image_relevance_mode: keyword
+  max_concurrent_fetches: 3

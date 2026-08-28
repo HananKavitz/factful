@@ -29,7 +29,7 @@ def make_result() -> PipelineResult:
         retrieved_at="2024-01-02T00:00:00Z",
     )
     state = PipelineState(
-        topic="AI trends",
+        prompt="AI trends",
         angle="data angle",
         source_bundle=SourceBundle(topic="AI trends", angle="data angle", citations=[citation]),
     )

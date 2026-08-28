@@ -6,7 +6,7 @@ import type {
 } from "../../types";
 
 export interface CreateStoryRequest {
-  topic: string;
+  prompt: string;
   angle?: string | null;
   instructions?: string | null;
 }
@@ -28,6 +28,10 @@ export interface GenerateNoteRequest {
 
 export interface GeneratedNote {
   note: string;
+}
+
+export interface RenderVideoRequest {
+  voice?: string | null;
 }
 
 type StoryTag = { type: "Story"; id: number | "LIST" };
@@ -93,6 +97,19 @@ export const storiesApi = baseApi.injectEndpoints({
         body,
       }),
     }),
+    renderVideo: build.mutation<
+      JobStatus,
+      { id: number; body?: RenderVideoRequest }
+    >({
+      query: ({ id, body }) => ({
+        url: `/stories/${id}/render-video`,
+        method: "POST",
+        body: body ?? {},
+      }),
+      invalidatesTags: (_result, _error, arg): StoryTag[] => [
+        { type: "Story", id: arg.id },
+      ],
+    }),
   }),
 });
 
@@ -104,4 +121,5 @@ export const {
   useEditStoryMutation,
   useDeleteStoryMutation,
   useGenerateNoteMutation,
+  useRenderVideoMutation,
 } = storiesApi;

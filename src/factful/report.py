@@ -12,7 +12,7 @@ def render_report(result: PipelineResult) -> str:
     lines = [
         "# Factful report",
         "",
-        f"Topic: {state.topic}",
+        f"Prompt: {state.prompt}",
         f"Angle: {state.angle}",
         f"Decision: {result.decision}",
         f"Reason: {result.reason}",
@@ -62,7 +62,7 @@ def render_report(result: PipelineResult) -> str:
 def serialize_report(result: PipelineResult) -> dict[str, Any]:
     state = result.state
     return {
-        "topic": state.topic,
+        "prompt": state.prompt,
         "angle": state.angle,
         "decision": result.decision,
         "reason": result.reason,

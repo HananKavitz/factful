@@ -35,13 +35,13 @@ def make_result(*, draft: str, score: int = 90) -> PipelineResult:
         retrieved_at="2024-01-02T00:00:00Z",
     )
     state = PipelineState(
-        topic="Topic",
+        prompt="Topic",
         angle="Angle",
         source_bundle=SourceBundle(topic="Topic", angle="Angle", citations=[citation]),
     )
     state.add_verdict(FactVerdict(claim_id="c1", status="verified", confidence=0.9, reason="ok"))
     state.add_critique(CritiqueReport(score=score, issues=[], verdict="pass"))
-    state.record_pass(score=score, draft=draft)
+    state.record_pass(score=score, draft=draft, title="Generated Title")
     return PipelineResult(state=state, decision="publish", reason="hard gate passed", unresolved=[])
 
 
@@ -116,7 +116,7 @@ class TestRunGeneration:
         record = JobRecord("job-1", user_id=7)
         run_generation(
             record,
-            GenerationRequest(user_id=7, topic="Topic", angle=None, instructions="keep it short"),
+            GenerationRequest(user_id=7, prompt="Topic", angle=None, instructions="keep it short"),
             sessions=sessions,
             env={"LLM_API_KEY": "k", "TAVILY_API_KEY": "t"},
         )
@@ -128,10 +128,10 @@ class TestRunGeneration:
         with sessions() as db:
             story = db.scalars(select(Story)).one()
             assert story.user_id == 7
-            assert story.topic == "Topic"
+            assert story.prompt == "Topic"
             assert story.angle == DEFAULT_ANGLE
             assert story.instructions == "keep it short"
-            assert story.title == "The Big Story"
+            assert story.title == "Generated Title"
             assert story.markdown == "# The Big Story\n\nbody"
             assert story.score == 90
             report = json.loads(story.report)
@@ -159,7 +159,7 @@ class TestRunGeneration:
             record,
             GenerationRequest(
                 user_id=7,
-                topic="T",
+                prompt="T",
                 angle=None,
                 instructions=None,
                 temperature=0.6,
@@ -186,7 +186,7 @@ class TestRunGeneration:
         try:
             run_generation(
                 record,
-                GenerationRequest(user_id=7, topic="T", angle="A", instructions=None),
+                GenerationRequest(user_id=7, prompt="T", angle="A", instructions=None),
                 sessions=sessions,
                 env={},
             )
@@ -228,7 +228,7 @@ class TestRunGeneration:
 
         run_generation(
             record,
-            GenerationRequest(user_id=7, topic="T", angle=None, instructions=None),
+            GenerationRequest(user_id=7, prompt="T", angle=None, instructions=None),
             sessions=sessions,
             env={},
         )
@@ -257,7 +257,7 @@ class TestRunGeneration:
             record,
             GenerationRequest(
                 user_id=7,
-                topic="T",
+                prompt="T",
                 angle=None,
                 instructions=None,
                 style_profile=make_user_profile(),
@@ -286,7 +286,7 @@ class TestRunGeneration:
         record = JobRecord("job-neutral", user_id=7)
         run_generation(
             record,
-            GenerationRequest(user_id=7, topic="T", angle=None, instructions=None),
+            GenerationRequest(user_id=7, prompt="T", angle=None, instructions=None),
             sessions=sessions,
             env={},
         )
@@ -314,7 +314,7 @@ class TestRunGeneration:
 
         run_generation(
             record,
-            GenerationRequest(user_id=7, topic="T", angle=None, instructions=None),
+            GenerationRequest(user_id=7, prompt="T", angle=None, instructions=None),
             sessions=sessions,
             env={},
         )

@@ -1,5 +1,42 @@
 import type { VideoInfo } from "../../types";
 
+const STAGE_LABELS: Record<string, string> = {
+  preparing: "Preparing assets…",
+  fetching_media: "Downloading images & generating audio…",
+  composing: "Building slides…",
+  encoding: "Encoding video (this takes the longest)…",
+  finalizing: "Finalizing…",
+};
+
+function stageDisplayName(stage: string | null): string {
+  if (!stage) return "Rendering…";
+  return STAGE_LABELS[stage] ?? stage;
+}
+
+function ProgressBar({ value, stage }: { value: number | null; stage: string | null }) {
+  const pct = value ?? 0;
+  return (
+    <div className="w-full">
+      <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
+        <span>{stageDisplayName(stage)}</span>
+        <span>{pct}%</span>
+      </div>
+      <div
+        className="h-2 w-full overflow-hidden rounded-full bg-slate-200"
+        role="progressbar"
+        aria-valuenow={pct}
+        aria-valuemin={0}
+        aria-valuemax={100}
+      >
+        <div
+          className="h-full rounded-full bg-cyan-600 transition-all duration-500 ease-out"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 interface VideoTabProps {
   voice: string;
   onVoiceChange: (voice: string) => void;
@@ -11,7 +48,11 @@ interface VideoTabProps {
   videos: VideoInfo[];
   isRendering: boolean;
   onRenderVideo: () => void;
+  onCancelVideo: () => void;
+  isCancelling: boolean;
   videoError: string | null;
+  videoProgress: number | null;
+  videoStage: string | null;
 }
 
 const TTS_VOICES = [
@@ -30,13 +71,16 @@ export function VideoTab({
   onVoiceChange,
   playableVideos,
   selectedVideo,
-  selectedVideoId,
   onSelectedVideoIdChange,
   hasPlayable,
   videos,
   isRendering,
   onRenderVideo,
+  onCancelVideo,
+  isCancelling,
   videoError,
+  videoProgress,
+  videoStage,
 }: VideoTabProps) {
   return (
     <div className="space-y-4">
@@ -77,6 +121,21 @@ export function VideoTab({
               </button>
             </div>
           </div>
+          {isRendering && videoProgress != null && (
+            <div className="mb-2">
+              <ProgressBar
+                value={videoProgress}
+                stage={videoStage}
+              />
+              <button
+                onClick={onCancelVideo}
+                disabled={isCancelling}
+                className="mt-1 text-xs text-red-500 hover:text-red-700 disabled:opacity-50"
+              >
+                {isCancelling ? "Cancelling…" : "Cancel"}
+              </button>
+            </div>
+          )}
           <video
             key={selectedVideo.id}
             controls
@@ -136,16 +195,19 @@ export function VideoTab({
             </div>
           )}
           {isRendering && (
-            <button
-              disabled
-              className="mt-2 inline-flex items-center gap-2 rounded-md bg-cyan-600 px-4 py-2 text-sm font-medium text-white opacity-50"
-            >
-              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-              </svg>
-              Rendering…
-            </button>
+            <div className="mt-2">
+              <ProgressBar
+                value={videoProgress}
+                stage={videoStage}
+              />
+              <button
+                onClick={onCancelVideo}
+                disabled={isCancelling}
+                className="mt-1 text-xs text-red-500 hover:text-red-700 disabled:opacity-50"
+              >
+                {isCancelling ? "Cancelling…" : "Cancel"}
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -174,16 +236,19 @@ export function VideoTab({
             </div>
           )}
           {isRendering && (
-            <button
-              disabled
-              className="inline-flex items-center gap-2 rounded-md bg-cyan-600 px-4 py-2 text-sm font-medium text-white opacity-50"
-            >
-              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-              </svg>
-              Rendering…
-            </button>
+            <div className="mt-2">
+              <ProgressBar
+                value={videoProgress}
+                stage={videoStage}
+              />
+              <button
+                onClick={onCancelVideo}
+                disabled={isCancelling}
+                className="mt-1 text-xs text-red-500 hover:text-red-700 disabled:opacity-50"
+              >
+                {isCancelling ? "Cancelling…" : "Cancel"}
+              </button>
+            </div>
           )}
         </div>
       )}

@@ -8,7 +8,7 @@ import { useCreateStoryMutation } from "../stories/storiesApi";
 interface CreateStoryModalProps {
   onClose: () => void;
   initialValues?: {
-    topic: string;
+    prompt: string;
     angle: string | null;
     instructions: string | null;
   };
@@ -21,7 +21,7 @@ function formatElapsed(seconds: number): string {
 }
 
 export function CreateStoryModal({ onClose, initialValues }: CreateStoryModalProps) {
-  const [topic, setTopic] = useState(initialValues?.topic ?? "");
+  const [prompt, setPrompt] = useState(initialValues?.prompt ?? "");
   const [angle, setAngle] = useState(initialValues?.angle ?? "");
   const [instructions, setInstructions] = useState(initialValues?.instructions ?? "");
   const [jobId, setJobId] = useState<string | null>(null);
@@ -35,7 +35,7 @@ export function CreateStoryModal({ onClose, initialValues }: CreateStoryModalPro
   });
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
-  const topicRef = useRef<HTMLTextAreaElement>(null);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
   const mouseDownTarget = useRef<EventTarget | null>(null);
 
   const isRegenerate = initialValues !== undefined;
@@ -47,7 +47,7 @@ export function CreateStoryModal({ onClose, initialValues }: CreateStoryModalPro
     job?.status !== "cancelled";
 
   useEffect(() => {
-    topicRef.current?.focus();
+    promptRef.current?.focus();
   }, []);
 
   useEffect(() => {
@@ -92,7 +92,7 @@ export function CreateStoryModal({ onClose, initialValues }: CreateStoryModalPro
     setError(null);
     try {
       const result = await createStory({
-        topic: topic.trim(),
+        prompt: prompt.trim(),
         angle: angle.trim() || null,
         instructions: instructions.trim() || null,
       }).unwrap();
@@ -180,12 +180,12 @@ export function CreateStoryModal({ onClose, initialValues }: CreateStoryModalPro
         ) : (
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             <label className="block">
-              <span className="text-base font-medium text-slate-700">Topic</span>
+              <span className="text-base font-medium text-slate-700">Prompt</span>
               <textarea
-                ref={topicRef}
-                value={topic}
-                onChange={(event) => setTopic(event.target.value)}
-                placeholder="e.g. Chip demand in 2026"
+                ref={promptRef}
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                placeholder="e.g. Write about chip demand in 2026"
                 rows={3}
                 className="mt-1 w-full rounded-md border border-slate-300 px-4 py-3 text-base"
                 required
@@ -224,7 +224,7 @@ export function CreateStoryModal({ onClose, initialValues }: CreateStoryModalPro
               </button>
               <button
                 type="submit"
-                disabled={isLoading || !topic.trim()}
+                disabled={isLoading || !prompt.trim()}
                 className="rounded-md bg-blush px-5 py-2.5 text-base font-medium text-slate-900 hover:bg-blush-dark disabled:opacity-50"
               >
                 Generate

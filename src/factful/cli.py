@@ -41,7 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"factful {__version__}")
     sub = parser.add_subparsers(dest="command")
     generate = sub.add_parser("generate", parents=[common], help="generate an article")
-    generate.add_argument("topic", type=str, help="article topic")
+    generate.add_argument("prompt", type=str, help="generation prompt describing the article to write")
     generate.add_argument("--angle", type=str, default=DEFAULT_ANGLE, help="framing angle")
     generate.add_argument(
         "--max-sources",
@@ -68,6 +68,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         type=str,
         help="output Profile YAML path (default: profiles/<name>.yaml)",
+    )
+    install_ffmpeg = sub.add_parser(
+        "install-ffmpeg", parents=[common], help="download portable FFmpeg if not on PATH"
     )
     return parser
 
@@ -100,7 +103,7 @@ def _write_outputs(
     out_dir: Path, result: PipelineResult, *, now: datetime | None = None
 ) -> tuple[Path, Path, Path]:
     generated_at = now or datetime.now().astimezone()
-    slug_dir = out_dir / f"{_slugify(result.state.topic)}-{generated_at:%Y-%m-%d_%H-%M}"
+    slug_dir = out_dir / f"{_slugify(result.state.prompt)}-{generated_at:%Y-%m-%d_%H-%M}"
     slug_dir.mkdir(parents=True, exist_ok=True)
     draft_path = slug_dir / "draft.md"
     report_path = slug_dir / "report.md"
@@ -145,7 +148,7 @@ def _generate_command(args: argparse.Namespace) -> int:
         Path("src/factful/style/profiles") / f"{runtime.settings.writer.profile}.yaml"
     )
     result = run_pipeline(
-        args.topic,
+        args.prompt,
         args.angle,
         settings=runtime.settings,
         searcher=runtime.searcher,
@@ -159,12 +162,20 @@ def _generate_command(args: argparse.Namespace) -> int:
     )
 
     scores = ", ".join(f"{record.score:.0f}" for record in result.state.passes)
-    print(f"{result.state.topic} — {result.decision}: {result.reason} (scores: [{scores}])")
+    print(f"{result.state.prompt} — {result.decision}: {result.reason} (scores: [{scores}])")
     for path in _write_outputs(Path(args.out), result):
         print(f"wrote {path}")
     if result.unresolved:
         for verdict in result.unresolved:
             print(f"UNVERIFIED: {verdict.claim_id} [{verdict.status}] — {verdict.reason}")
+    return 0
+
+
+def _install_ffmpeg_command() -> int:
+    from factful.video.ffmpeg import install_ffmpeg
+
+    path = install_ffmpeg()
+    print(f"FFmpeg installed at {path}")
     return 0
 
 
@@ -190,6 +201,8 @@ def main(argv: list[str] | None = None) -> int:
         return _generate_command(args)
     if args.command == "style":
         return _style_command(args)
+    if args.command == "install-ffmpeg":
+        return _install_ffmpeg_command()
     return 0
 
 

@@ -1,5 +1,5 @@
 from factful.schemas import Citation, FactVerdict, SourceBundle
-from factful.state import PassRecord, PipelineState
+from factful.state import CRITICAL_STATUSES, PassRecord, PipelineState
 
 VERIFIED = FactVerdict(claim_id="c1", status="verified", confidence=0.9, reason="ok")
 CONTRADICTED = FactVerdict(claim_id="c1", status="contradicted", confidence=0.4, reason="x")
@@ -19,7 +19,7 @@ def make_state() -> PipelineState:
         retrieved_at="2025-01-02T00:00:00Z",
     )
     return PipelineState(
-        topic="t",
+        prompt="t",
         angle="a",
         source_bundle=SourceBundle(topic="t", angle="a", citations=[citation]),
     )
@@ -27,7 +27,7 @@ def make_state() -> PipelineState:
 
 def test_initial_state() -> None:
     state = make_state()
-    assert state.topic == "t"
+    assert state.prompt == "t"
     assert state.angle == "a"
     assert state.draft is None
     assert state.score is None
@@ -90,6 +90,6 @@ def test_citations_are_copied_not_shared() -> None:
         retrieved_at="2025-01-02T00:00:00Z",
     )
     bundle = SourceBundle(topic="t", angle="a", citations=[citation])
-    state = PipelineState(topic="t", angle="a", source_bundle=bundle)
+    state = PipelineState(prompt="t", angle="a", source_bundle=bundle)
     bundle.citations.clear()
     assert state.citations == [citation]

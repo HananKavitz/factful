@@ -19,7 +19,7 @@ export interface JobStatus {
 export interface StorySummary {
   id: number;
   title: string;
-  topic: string;
+  prompt: string;
   score: number | null;
   created_at: string;
   updated_at: string;
@@ -29,6 +29,20 @@ export interface StoryDetail extends StorySummary {
   angle: string | null;
   instructions: string | null;
   markdown: string;
+  videos: VideoInfo[];
+}
+
+export interface VideoInfo {
+  id: number;
+  url: string;
+  voice: string;
+  duration_seconds: number | null;
+  file_size_bytes: number | null;
+  resolution: string | null;
+  status: string;
+  error_message: string | null;
+  file_exists: boolean;
+  created_at: string;
 }
 
 export interface DeviceExample {

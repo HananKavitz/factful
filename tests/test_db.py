@@ -39,7 +39,7 @@ def test_init_db_creates_tables() -> None:
     init_db(engine)
     from sqlalchemy import inspect
 
-    assert set(inspect(engine).get_table_names()) == {"users", "stories"}
+    assert set(inspect(engine).get_table_names()) == {"users", "stories", "videos"}
 
 
 def test_init_db_applies_migrations_to_file_db(tmp_path) -> None:
@@ -72,7 +72,7 @@ def test_session_factory_roundtrip() -> None:
         db.commit()
         story = Story(
             user_id=user.id,
-            topic="Chips",
+            prompt="Chips",
             angle="supply risk",
             title="Chips",
             markdown="# Chips\n\nBody.",

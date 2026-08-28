@@ -42,3 +42,8 @@ output/
 # Local dev database
 *.db
 *.sqlite3
+# Video generation
+factful_videos/
+*.mp4
+*.mp3
+.test_output_*

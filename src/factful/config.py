@@ -66,6 +66,9 @@ class Web(BaseModel):
     google_client_secret: str = ""
 
 
+from factful.video.settings import VideoSettings  # noqa: E402
+
+
 class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -77,6 +80,7 @@ class Settings(BaseModel):
     writer: Writer = Field(default_factory=Writer)
     llm: LLM = Field(default_factory=LLM)
     web: Web = Field(default_factory=Web)
+    video: VideoSettings = Field(default_factory=VideoSettings)
 
 
 _WEB_ENV_VARS: dict[str, str] = {
@@ -85,6 +89,10 @@ _WEB_ENV_VARS: dict[str, str] = {
     "session_secret": "SESSION_SECRET",
     "google_client_id": "GOOGLE_CLIENT_ID",
     "google_client_secret": "GOOGLE_CLIENT_SECRET",
+}
+
+_VIDEO_ENV_VARS: dict[str, str] = {
+    "unsplash_api_key": "UNSPLASH_ACCESS_KEY",
 }
 
 
@@ -99,6 +107,19 @@ def load_web_settings(
         if (value := (env or {}).get(variable)) is not None
     }
     return Web.model_validate({**base.model_dump(), **overrides})
+
+
+def load_video_settings(
+    settings: Settings | None = None, env: Mapping[str, str] | None = None
+) -> VideoSettings:
+    """Resolve video settings from YAML defaults with environment overrides."""
+    base = settings.video if settings is not None else VideoSettings()
+    overrides = {
+        name: value
+        for name, variable in _VIDEO_ENV_VARS.items()
+        if (value := (env or {}).get(variable)) is not None
+    }
+    return VideoSettings.model_validate({**base.model_dump(), **overrides})
 
 
 def load_settings(path: Path | str | None = None) -> Settings:

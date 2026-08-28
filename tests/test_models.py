@@ -34,7 +34,7 @@ def test_user_google_sub_is_unique() -> None:
 def test_story_requires_user() -> None:
     sessions = _fresh_session()
     with sessions() as db:
-        db.add(Story(user_id=999, topic="Chips", title="Chips", markdown="# Chips"))
+        db.add(Story(user_id=999, prompt="Chips", title="Chips", markdown="# Chips"))
         with pytest.raises(IntegrityError):
             db.commit()
 
@@ -65,7 +65,7 @@ def test_updated_at_changes_on_update() -> None:
         user = User(google_sub="sub-1", email="a@example.com", name="Alice")
         db.add(user)
         db.commit()
-        story = Story(user_id=user.id, topic="Chips", title="Chips", markdown="# Chips")
+        story = Story(user_id=user.id, prompt="Chips", title="Chips", markdown="# Chips")
         db.add(story)
         db.commit()
         db.refresh(story)
@@ -86,9 +86,9 @@ def test_owned_stories_query() -> None:
         db.commit()
         db.add_all(
             [
-                Story(user_id=alice.id, topic="A1", title="A1", markdown="# A1"),
-                Story(user_id=alice.id, topic="A2", title="A2", markdown="# A2"),
-                Story(user_id=bob.id, topic="B1", title="B1", markdown="# B1"),
+                Story(user_id=alice.id, prompt="A1", title="A1", markdown="# A1"),
+                Story(user_id=alice.id, prompt="A2", title="A2", markdown="# A2"),
+                Story(user_id=bob.id, prompt="B1", title="B1", markdown="# B1"),
             ]
         )
         db.commit()
@@ -99,4 +99,4 @@ def test_owned_stories_query() -> None:
             .where(Story.user_id == alice.id)
             .order_by(Story.created_at.desc(), Story.id.desc())
         ).all()
-        assert [s.topic for s in alice_stories] == ["A2", "A1"]
+        assert [s.prompt for s in alice_stories] == ["A2", "A1"]

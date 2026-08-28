@@ -1,4 +1,4 @@
-"""SQLAlchemy ORM models: users and stories."""
+"""SQLAlchemy ORM models: users, stories, and videos."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ class Story(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
-    topic: Mapped[str] = mapped_column(Text)
+    prompt: Mapped[str] = mapped_column(Text)
     angle: Mapped[str | None] = mapped_column(Text, nullable=True)
     instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     title: Mapped[str] = mapped_column(Text)
@@ -44,3 +44,23 @@ class Story(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="stories")
+    videos: Mapped[list[Video]] = relationship(
+        back_populates="story", cascade="all, delete-orphan", order_by="Video.created_at.desc()"
+    )
+
+
+class Video(Base):
+    __tablename__ = "videos"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    story_id: Mapped[int] = mapped_column(ForeignKey("stories.id", ondelete="CASCADE"))
+    file_path: Mapped[str] = mapped_column(String(1024))
+    status: Mapped[str] = mapped_column(String(32), default="completed")
+    voice: Mapped[str] = mapped_column(String(64))
+    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    file_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    resolution: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    story: Mapped[Story] = relationship(back_populates="videos")

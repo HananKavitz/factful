@@ -107,7 +107,7 @@ def run_pipeline(
         today=today,
         user_urls=user_urls or None,
     )
-    state = PipelineState(topic=topic, angle=angle, source_bundle=bundle)
+    state = PipelineState(prompt=topic, angle=angle, source_bundle=bundle)
     logger.info("gathered %d citations", len(state.citations))
 
     previous_draft = None
@@ -165,7 +165,7 @@ def run_pipeline(
         progress("critiquing")
         report = critique(draft, client=clients.critic, settings=settings)
         state.add_critique(report)
-        state.record_pass(score=report.score, draft=draft.markdown)
+        state.record_pass(score=report.score, draft=draft.markdown, title=draft.title)
         logger.info("pass %d: critique score %g", pass_, report.score)
 
         decision = converge(

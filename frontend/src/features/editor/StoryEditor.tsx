@@ -8,7 +8,7 @@ import {
   useRenderVideoMutation,
   useUpdateStoryMutation,
 } from "../stories/storiesApi";
-import { useGetJobQuery } from "../jobs/jobsApi";
+import { useGetJobQuery, useCancelJobMutation } from "../jobs/jobsApi";
 import { CreateStoryModal } from "../gallery/CreateStoryModal";
 import { NoteModal } from "./NoteModal";
 import { VideoTab } from "./VideoTab";
@@ -59,6 +59,7 @@ function EditorForm({ story }: EditorFormProps) {
   const [deleteStory, { isLoading: deleting }] = useDeleteStoryMutation();
   const [generateNote, { isLoading: generatingNote }] = useGenerateNoteMutation();
   const [renderVideo, { isLoading: renderingVideo }] = useRenderVideoMutation();
+  const [cancelJob, { isLoading: cancelling }] = useCancelJobMutation();
   const navigate = useNavigate();
 
   const [title, setTitle] = useState(story.title);
@@ -201,6 +202,17 @@ function EditorForm({ story }: EditorFormProps) {
     }
   }, [story.id, renderVideo, selectedVoice]);
 
+  const handleCancelVideo = useCallback(async () => {
+    if (!videoJobId) return;
+    try {
+      await cancelJob(videoJobId).unwrap();
+      setVideoJobId(null);
+      setVideoError("Video rendering was cancelled.");
+    } catch {
+      setVideoError("Failed to cancel video render.");
+    }
+  }, [videoJobId, cancelJob]);
+
   const wordCount = markdown.trim() ? markdown.trim().split(/\s+/).length : 0;
 
   const isRendering =
@@ -211,7 +223,7 @@ function EditorForm({ story }: EditorFormProps) {
   return (
     <div className="flex h-full flex-col space-y-4">
       <div className="flex shrink-0 items-center justify-between">
-        <h1 className="text-xl font-semibold text-slate-900">{story.topic}</h1>
+        <h1 className="text-xl font-semibold text-slate-900">{story.title}</h1>
         <div className="flex items-center gap-3">
           <span className="text-xs text-slate-400">
             {saving ? "Saving…" : saveError ?? "Saved"}
@@ -265,7 +277,7 @@ function EditorForm({ story }: EditorFormProps) {
       {regenerateOpen && (
         <CreateStoryModal
           initialValues={{
-            topic: story.topic,
+            prompt: story.prompt,
             angle: story.angle,
             instructions: story.instructions,
           }}
@@ -405,7 +417,11 @@ function EditorForm({ story }: EditorFormProps) {
           videos={story.videos ?? []}
           isRendering={isRendering}
           onRenderVideo={handleRenderVideo}
+          onCancelVideo={handleCancelVideo}
+          isCancelling={cancelling}
           videoError={videoError}
+          videoProgress={videoJob?.progress ?? null}
+          videoStage={videoJob?.stage ?? null}
         />
       )}
     </div>

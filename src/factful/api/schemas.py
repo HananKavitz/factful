@@ -23,7 +23,7 @@ class MockLoginRequest(BaseModel):
 class StorySummary(BaseModel):
     id: int
     title: str
-    topic: str
+    prompt: str
     score: float | None = None
     created_at: datetime
     updated_at: datetime
@@ -32,17 +32,18 @@ class StorySummary(BaseModel):
 class StoryDetail(BaseModel):
     id: int
     title: str
-    topic: str
+    prompt: str
     angle: str | None = None
     instructions: str | None = None
     markdown: str
     score: float | None = None
     created_at: datetime
     updated_at: datetime
+    videos: list[VideoInfo] = []
 
 
 class CreateStoryRequest(BaseModel):
-    topic: str = Field(min_length=1)
+    prompt: str = Field(min_length=1)
     angle: str | None = None
     instructions: str | None = Field(default=None, max_length=4000)
 
@@ -50,6 +51,7 @@ class CreateStoryRequest(BaseModel):
 class UpdateStoryRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1)
     markdown: str | None = Field(default=None, min_length=1)
+    prompt: str | None = Field(default=None, min_length=1)
 
 
 class EditStoryRequest(BaseModel):
@@ -88,3 +90,20 @@ class JobStatus(BaseModel):
     error: str | None = None
     story_id: int | None = None
     progress: int | None = None
+
+
+class VideoInfo(BaseModel):
+    id: int
+    url: str
+    voice: str
+    duration_seconds: float | None = None
+    file_size_bytes: int | None = None
+    resolution: str | None = None
+    status: str
+    error_message: str | None = None
+    file_exists: bool
+    created_at: datetime
+
+
+class RenderVideoRequest(BaseModel):
+    voice: str | None = Field(default=None, min_length=1, max_length=128)

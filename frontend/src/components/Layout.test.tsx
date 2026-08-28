@@ -31,7 +31,7 @@ const stories: StorySummary[] = [
   {
     id: 1,
     title: "Chip demand in 2026",
-    topic: "semiconductors",
+    prompt: "semiconductors",
     score: 84,
     created_at: "2026-01-15T10:00:00Z",
     updated_at: "2026-01-15T10:00:00Z",
@@ -39,7 +39,7 @@ const stories: StorySummary[] = [
   {
     id: 2,
     title: "Solar cells",
-    topic: "renewables",
+    prompt: "renewables",
     score: null,
     created_at: "2026-02-01T10:00:00Z",
     updated_at: "2026-02-01T10:00:00Z",

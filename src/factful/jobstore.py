@@ -56,6 +56,11 @@ class JobRecord:
             self._story_id = story_id
             self._progress = 100
 
+    def set_meta_story_id(self, story_id: int) -> None:
+        """Set the associated story ID without altering status or progress."""
+        with self._lock:
+            self._story_id = story_id
+
     def cancel(self) -> None:
         with self._lock:
             if self._status in ("done", "error", "cancelled"):

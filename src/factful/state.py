@@ -12,15 +12,17 @@ class PassRecord:
     score: float
     draft: str
     critical_failures: int
+    title: str = ""
 
 
 @dataclass
 class PipelineState:
-    topic: str
+    prompt: str
     angle: str
     source_bundle: SourceBundle | None = None
     draft: str | None = None
     score: float | None = None
+    title: str | None = None
     verdicts: list[FactVerdict] = field(default_factory=list)
     critiques: list[CritiqueReport] = field(default_factory=list)
     citations: list[Citation] = field(default_factory=list)
@@ -41,11 +43,17 @@ class PipelineState:
     def add_critique(self, critique: CritiqueReport) -> None:
         self.critiques.append(critique)
 
-    def record_pass(self, score: float, draft: str) -> None:
+    def record_pass(self, score: float, draft: str, title: str = "") -> None:
         self.score = score
         self.draft = draft
+        self.title = title or self.title
         self.passes.append(
-            PassRecord(score=score, draft=draft, critical_failures=self.critical_failures)
+            PassRecord(
+                score=score,
+                draft=draft,
+                critical_failures=self.critical_failures,
+                title=title,
+            )
         )
 
     def advance_pass(self) -> None:

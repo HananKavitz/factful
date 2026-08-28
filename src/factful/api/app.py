@@ -11,10 +11,15 @@ from starlette.middleware.sessions import SessionMiddleware
 from factful.api import auth, jobs, stories
 from factful.api.settings import build_style_extractor
 from factful.api.settings import router as settings_router
-from factful.config import Settings, load_settings, load_web_settings
+from factful.config import (
+    Settings,
+    load_settings,
+    load_video_settings,
+    load_web_settings,
+)
 from factful.db import build_engine, init_db, session_factory
 from factful.editing import build_editor
-from factful.generation import build_generation_runner
+from factful.generation import build_generation_runner, build_video_renderer
 from factful.jobstore import JobStore
 from factful.notes import build_note_generator
 from factful.static import default_frontend_dist, mount_frontend
@@ -30,12 +35,16 @@ def create_app(
         env = dict(os.environ)
     settings = settings or load_settings()
     web = load_web_settings(settings, env)
+    video_settings = load_video_settings(settings, env)
     engine = build_engine(web.database_url, env)
     init_db(engine)
     sessions = session_factory(engine)
     job_store = JobStore()
     generation_runner = build_generation_runner(sessions=sessions, env=env)
     editor = build_editor(env=env)
+    video_renderer = build_video_renderer(
+        sessions=sessions, env=env, settings=settings, video_settings=video_settings
+    )
 
     app = FastAPI(title="factful")
     app.add_middleware(
@@ -48,6 +57,7 @@ def create_app(
     app.state.sessions = sessions
     app.state.job_store = job_store
     app.state.generation_runner = generation_runner
+    app.state.video_renderer = video_renderer
     app.state.editor = editor
     app.state.style_extractor = build_style_extractor(settings=settings, env=dict(env))
     app.state.note_generator = build_note_generator(env=env)

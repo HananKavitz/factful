@@ -61,7 +61,7 @@ import { StoryEditor } from "./StoryEditor";
 const story: StoryDetail = {
   id: 1,
   title: "Chips",
-  topic: "Semiconductors",
+  prompt: "Semiconductors",
   score: 88,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
@@ -331,7 +331,7 @@ describe("StoryEditor", () => {
     expect(
       screen.getByRole("heading", { name: "Regenerate story" }),
     ).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("e.g. Chip demand in 2026")).toHaveValue(
+    expect(screen.getByPlaceholderText("e.g. Write about chip demand in 2026")).toHaveValue(
       "Semiconductors",
     );
     expect(screen.getByPlaceholderText("e.g. key numbers and statistics")).toHaveValue(

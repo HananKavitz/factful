@@ -54,7 +54,11 @@ const defaultProps = {
   videos: [] as VideoInfo[],
   isRendering: false,
   onRenderVideo: vi.fn(),
+  onCancelVideo: vi.fn(),
+  isCancelling: false,
   videoError: null as string | null,
+  videoProgress: null as number | null,
+  videoStage: null as string | null,
 };
 
 describe("VideoTab", () => {
@@ -68,13 +72,30 @@ describe("VideoTab", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows a spinner when rendering with no videos yet", () => {
+  it("shows a progress bar when rendering with no videos yet", () => {
     render(<VideoTab {...defaultProps} isRendering={true} />);
 
     expect(screen.getByText("Rendering…")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Render Video" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("displays progress percentage and stage label during rendering", () => {
+    render(
+      <VideoTab
+        {...defaultProps}
+        isRendering={true}
+        videoProgress={42}
+        videoStage="fetching_media"
+      />,
+    );
+
+    expect(screen.getByText("42%")).toBeInTheDocument();
+    expect(
+      screen.getByText("Downloading images & generating audio…"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toBeInTheDocument();
   });
 
   it("shows the video player when playable videos exist", () => {
@@ -164,7 +185,7 @@ describe("VideoTab", () => {
     expect(screen.queryByText("Render new version")).not.toBeInTheDocument();
   });
 
-  it("shows a rendering spinner alongside failed videos", () => {
+  it("shows a progress bar alongside failed videos", () => {
     render(
       <VideoTab
         {...defaultProps}

@@ -91,7 +91,7 @@ function makeStore() {
 
 function renderModal(
   onClose = () => undefined,
-  initialValues?: { topic: string; angle: string | null; instructions: string | null },
+  initialValues?: { prompt: string; angle: string | null; instructions: string | null },
   store = makeStore().store,
 ) {
   return render(
@@ -140,11 +140,11 @@ describe("CreateStoryModal", () => {
     const user = userEvent.setup();
     renderModal();
 
-    await user.type(screen.getByPlaceholderText("e.g. Chip demand in 2026"), "Chips");
+    await user.type(screen.getByPlaceholderText("e.g. Write about chip demand in 2026"), "Chips");
     await user.click(screen.getByRole("button", { name: "Generate" }));
 
     expect(stories.createStory).toHaveBeenCalledWith({
-      topic: "Chips",
+      prompt: "Chips",
       angle: null,
       instructions: null,
     });
@@ -179,7 +179,7 @@ describe("CreateStoryModal", () => {
     const user = userEvent.setup();
     renderModal(undefined, undefined, store);
 
-    await user.type(screen.getByPlaceholderText("e.g. Chip demand in 2026"), "Chips");
+    await user.type(screen.getByPlaceholderText("e.g. Write about chip demand in 2026"), "Chips");
     await user.click(screen.getByRole("button", { name: "Generate" }));
 
     act(() =>
@@ -212,7 +212,7 @@ describe("CreateStoryModal", () => {
     const user = userEvent.setup();
     renderModal();
 
-    await user.type(screen.getByPlaceholderText("e.g. Chip demand in 2026"), "Chips");
+    await user.type(screen.getByPlaceholderText("e.g. Write about chip demand in 2026"), "Chips");
     await user.click(screen.getByRole("button", { name: "Generate" }));
 
     act(() =>
@@ -232,7 +232,7 @@ describe("CreateStoryModal", () => {
     const user = userEvent.setup();
     renderModal();
 
-    await user.type(screen.getByPlaceholderText("e.g. Chip demand in 2026"), "Chips");
+    await user.type(screen.getByPlaceholderText("e.g. Write about chip demand in 2026"), "Chips");
     await user.click(screen.getByRole("button", { name: "Generate" }));
 
     act(() =>
@@ -253,7 +253,7 @@ describe("CreateStoryModal", () => {
     const user = userEvent.setup();
     renderModal();
 
-    await user.type(screen.getByPlaceholderText("e.g. Chip demand in 2026"), "Chips");
+    await user.type(screen.getByPlaceholderText("e.g. Write about chip demand in 2026"), "Chips");
     await user.click(screen.getByRole("button", { name: "Generate" }));
 
     act(() =>
@@ -276,7 +276,7 @@ describe("CreateStoryModal", () => {
     const user = userEvent.setup();
     renderModal();
 
-    await user.type(screen.getByPlaceholderText("e.g. Chip demand in 2026"), "Chips");
+    await user.type(screen.getByPlaceholderText("e.g. Write about chip demand in 2026"), "Chips");
     await user.click(screen.getByRole("button", { name: "Generate" }));
 
     expect(
@@ -287,7 +287,7 @@ describe("CreateStoryModal", () => {
 
   it("focuses the topic input on open", () => {
     renderModal();
-    expect(screen.getByPlaceholderText("e.g. Chip demand in 2026")).toHaveFocus();
+    expect(screen.getByPlaceholderText("e.g. Write about chip demand in 2026")).toHaveFocus();
   });
 
   it("closes on Escape when not running", async () => {
@@ -304,7 +304,7 @@ describe("CreateStoryModal", () => {
     const onClose = vi.fn();
     const { container } = renderModal(onClose);
 
-    await user.type(screen.getByPlaceholderText("e.g. Chip demand in 2026"), "Chips");
+    await user.type(screen.getByPlaceholderText("e.g. Write about chip demand in 2026"), "Chips");
     await user.click(screen.getByRole("button", { name: "Generate" }));
     act(() =>
       jobStore.setJob({
@@ -335,7 +335,7 @@ describe("CreateStoryModal", () => {
     const onClose = vi.fn();
     const { container } = renderModal(onClose);
     const backdrop = container.firstChild as Element;
-    const textarea = screen.getByPlaceholderText("e.g. Chip demand in 2026");
+    const textarea = screen.getByPlaceholderText("e.g. Write about chip demand in 2026");
 
     fireEvent.mouseDown(textarea);
     fireEvent.mouseUp(backdrop);
@@ -347,7 +347,7 @@ describe("CreateStoryModal", () => {
     const onClose = vi.fn();
     renderModal(onClose);
 
-    const textarea = screen.getByPlaceholderText("e.g. Chip demand in 2026");
+    const textarea = screen.getByPlaceholderText("e.g. Write about chip demand in 2026");
     fireEvent.change(textarea, { target: { value: "Chip demand in 2026" } });
 
     expect(onClose).not.toHaveBeenCalled();
@@ -358,7 +358,7 @@ describe("CreateStoryModal", () => {
     vi.useFakeTimers();
     renderModal();
 
-    fireEvent.change(screen.getByPlaceholderText("e.g. Chip demand in 2026"), {
+    fireEvent.change(screen.getByPlaceholderText("e.g. Write about chip demand in 2026"), {
       target: { value: "Chips" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Generate" }));
@@ -392,7 +392,7 @@ describe("CreateStoryModal", () => {
     const onClose = vi.fn();
     renderModal(onClose);
 
-    await user.type(screen.getByPlaceholderText("e.g. Chip demand in 2026"), "Chips");
+    await user.type(screen.getByPlaceholderText("e.g. Write about chip demand in 2026"), "Chips");
     await user.click(screen.getByRole("button", { name: "Generate" }));
     act(() =>
       jobStore.setJob({
@@ -415,7 +415,7 @@ describe("CreateStoryModal", () => {
     const onClose = vi.fn();
     renderModal(onClose);
 
-    await user.type(screen.getByPlaceholderText("e.g. Chip demand in 2026"), "Chips");
+    await user.type(screen.getByPlaceholderText("e.g. Write about chip demand in 2026"), "Chips");
     await user.click(screen.getByRole("button", { name: "Generate" }));
     act(() =>
       jobStore.setJob({
@@ -433,7 +433,7 @@ describe("CreateStoryModal", () => {
 
   it("pre-fills the form and shows the regenerate heading when initialValues are provided", () => {
     renderModal(undefined, {
-      topic: "Chip demand in 2026",
+      prompt: "Chip demand in 2026",
       angle: "key numbers and statistics",
       instructions: "Keep it under 800 words.",
     });
@@ -441,7 +441,7 @@ describe("CreateStoryModal", () => {
     expect(
       screen.getByRole("heading", { name: "Regenerate story" }),
     ).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("e.g. Chip demand in 2026")).toHaveValue(
+    expect(screen.getByPlaceholderText("e.g. Write about chip demand in 2026")).toHaveValue(
       "Chip demand in 2026",
     );
     expect(screen.getByPlaceholderText("e.g. key numbers and statistics")).toHaveValue(
@@ -453,7 +453,7 @@ describe("CreateStoryModal", () => {
   it("submits the pre-filled values unchanged when untouched", async () => {
     const user = userEvent.setup();
     renderModal(undefined, {
-      topic: "Chip demand in 2026",
+      prompt: "Chip demand in 2026",
       angle: "key numbers and statistics",
       instructions: "Keep it under 800 words.",
     });
@@ -461,7 +461,7 @@ describe("CreateStoryModal", () => {
     await user.click(screen.getByRole("button", { name: "Generate" }));
 
     expect(stories.createStory).toHaveBeenCalledWith({
-      topic: "Chip demand in 2026",
+      prompt: "Chip demand in 2026",
       angle: "key numbers and statistics",
       instructions: "Keep it under 800 words.",
     });
@@ -470,18 +470,18 @@ describe("CreateStoryModal", () => {
   it("submits the edited value when a pre-filled field is changed", async () => {
     const user = userEvent.setup();
     renderModal(undefined, {
-      topic: "Chip demand in 2026",
+      prompt: "Chip demand in 2026",
       angle: "key numbers and statistics",
       instructions: null,
     });
 
-    const topic = screen.getByPlaceholderText("e.g. Chip demand in 2026");
-    await user.clear(topic);
-    await user.type(topic, "AI chip demand");
+    const prompt = screen.getByPlaceholderText("e.g. Write about chip demand in 2026");
+    await user.clear(prompt);
+    await user.type(prompt, "AI chip demand");
     await user.click(screen.getByRole("button", { name: "Generate" }));
 
     expect(stories.createStory).toHaveBeenCalledWith({
-      topic: "AI chip demand",
+      prompt: "AI chip demand",
       angle: "key numbers and statistics",
       instructions: null,
     });

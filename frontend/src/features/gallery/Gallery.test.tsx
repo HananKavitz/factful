@@ -14,7 +14,7 @@ vi.mock("../stories/storiesApi", () => ({
 const story: StorySummary = {
   id: 1,
   title: "Chip demand in 2026",
-  topic: "semiconductors",
+  prompt: "semiconductors",
   score: 84,
   created_at: "2026-01-15T10:00:00Z",
   updated_at: "2026-01-15T10:00:00Z",
@@ -54,7 +54,7 @@ describe("Gallery", () => {
     renderGallery();
     const link = screen.getByRole("link", { name: /Chip demand in 2026/ });
     expect(link).toHaveAttribute("href", "/stories/1");
-    expect(screen.getByText(/semiconductors/)).toBeInTheDocument();
+    expect(screen.getByText(/score 84/)).toBeInTheDocument();
   });
 
   it("shows an empty state when there are no stories", () => {

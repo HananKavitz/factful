@@ -60,8 +60,7 @@ export function Gallery() {
                 </span>
               </div>
               <p className="mt-1 text-sm text-slate-500 truncate">
-                {story.topic}
-                {story.score != null && ` · score ${Math.round(story.score)}`}
+                {story.score != null && `score ${Math.round(story.score)}`}
               </p>
             </Link>
           </li>

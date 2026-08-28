@@ -32,11 +32,11 @@ def make_runner(app):
         with app.state.sessions() as db:
             story = Story(
                 user_id=request.user_id,
-                topic=request.topic,
+                prompt=request.prompt,
                 angle=request.angle,
                 instructions=request.instructions,
-                title=f"About {request.topic}",
-                markdown=f"# About {request.topic}\n\nBody.",
+                title=f"About {request.prompt}",
+                markdown=f"# About {request.prompt}\n\nBody.",
                 score=90.0,
                 report='{"decision": "publish"}',
             )
@@ -112,7 +112,7 @@ def test_list_stories_requires_auth(client: TestClient) -> None:
 
 def test_create_story_kicks_off_job(client: TestClient) -> None:
     login(client)
-    response = client.post("/api/stories", json={"topic": "Chip demand", "instructions": "short"})
+    response = client.post("/api/stories", json={"prompt": "Chip demand", "instructions": "short"})
     assert response.status_code == 202
     body = response.json()
     assert body["status"] in ("queued", "running")
@@ -124,7 +124,7 @@ def test_create_story_kicks_off_job(client: TestClient) -> None:
     assert done["progress"] == 100
 
     story = client.get(f"/api/stories/{done['story_id']}").json()
-    assert story["topic"] == "Chip demand"
+    assert story["prompt"] == "Chip demand"
     assert story["instructions"] == "short"
     assert story["markdown"].startswith("# About Chip demand")
 
@@ -132,20 +132,20 @@ def test_create_story_kicks_off_job(client: TestClient) -> None:
 def test_list_stories_shows_only_owned(client: TestClient) -> None:
     alice = login(client)
     assert alice["email"] == "alice@example.com"
-    client.post("/api/stories", json={"topic": "Chip demand"})
-    client.post("/api/stories", json={"topic": "Solar cells"})
+    client.post("/api/stories", json={"prompt": "Chip demand"})
+    client.post("/api/stories", json={"prompt": "Solar cells"})
 
     bob = make_client()
     login(bob)
     assert bob.get("/api/stories").json() == []
 
     mine = client.get("/api/stories").json()
-    assert [s["topic"] for s in mine] == ["Solar cells", "Chip demand"]
+    assert [s["prompt"] for s in mine] == ["Solar cells", "Chip demand"]
 
 
 def test_get_story_is_owner_scoped(client: TestClient) -> None:
     login(client)
-    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+    job = client.post("/api/stories", json={"prompt": "Chip demand"}).json()
     story_id = wait_for_job(client, job["job_id"])["story_id"]
 
     other = make_client()
@@ -155,7 +155,7 @@ def test_get_story_is_owner_scoped(client: TestClient) -> None:
 
 def test_update_story_title_and_markdown(client: TestClient) -> None:
     login(client)
-    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+    job = client.post("/api/stories", json={"prompt": "Chip demand"}).json()
     story_id = wait_for_job(client, job["job_id"])["story_id"]
 
     response = client.put(
@@ -178,7 +178,7 @@ def test_update_unknown_story_404(client: TestClient) -> None:
 
 def test_job_status_is_owner_scoped(client: TestClient) -> None:
     login(client)
-    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+    job = client.post("/api/stories", json={"prompt": "Chip demand"}).json()
 
     other = make_client()
     login(other, email="bob@example.com")
@@ -202,7 +202,7 @@ def test_cancel_job_marks_cancelled(client: TestClient) -> None:
         record.set_story_id(99)
 
     client.app.state.generation_runner = blocking_runner
-    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+    job = client.post("/api/stories", json={"prompt": "Chip demand"}).json()
     assert started.wait(timeout=5)
 
     response = client.post(f"/api/jobs/{job['job_id']}/cancel")
@@ -220,7 +220,7 @@ def test_cancel_job_requires_auth(client: TestClient) -> None:
 
 def test_cancel_job_is_owner_scoped(client: TestClient) -> None:
     login(client)
-    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+    job = client.post("/api/stories", json={"prompt": "Chip demand"}).json()
 
     other = make_client()
     login(other, email="bob@example.com")
@@ -234,7 +234,7 @@ def test_cancel_unknown_job_404(client: TestClient) -> None:
 
 def test_edit_story_applies_prompt(client: TestClient) -> None:
     login(client)
-    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+    job = client.post("/api/stories", json={"prompt": "Chip demand"}).json()
     story_id = wait_for_job(client, job["job_id"])["story_id"]
 
     response = client.post(f"/api/stories/{story_id}/edit", json={"prompt": "make it punchier"})
@@ -248,7 +248,7 @@ def test_edit_story_applies_prompt(client: TestClient) -> None:
 
 def test_edit_story_requires_valid_prompt(client: TestClient) -> None:
     login(client)
-    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+    job = client.post("/api/stories", json={"prompt": "Chip demand"}).json()
     story_id = wait_for_job(client, job["job_id"])["story_id"]
 
     assert client.post(f"/api/stories/{story_id}/edit", json={"prompt": ""}).status_code == 422
@@ -261,7 +261,7 @@ def test_edit_unknown_story_404(client: TestClient) -> None:
 
 def test_edit_story_is_owner_scoped(client: TestClient) -> None:
     login(client)
-    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+    job = client.post("/api/stories", json={"prompt": "Chip demand"}).json()
     story_id = wait_for_job(client, job["job_id"])["story_id"]
 
     other = make_client()
@@ -272,7 +272,7 @@ def test_edit_story_is_owner_scoped(client: TestClient) -> None:
 
 def test_delete_story_removes_it(client: TestClient) -> None:
     login(client)
-    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+    job = client.post("/api/stories", json={"prompt": "Chip demand"}).json()
     story_id = wait_for_job(client, job["job_id"])["story_id"]
 
     assert client.delete(f"/api/stories/{story_id}").status_code == 204
@@ -281,7 +281,7 @@ def test_delete_story_removes_it(client: TestClient) -> None:
 
 def test_delete_story_is_owner_scoped(client: TestClient) -> None:
     login(client)
-    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+    job = client.post("/api/stories", json={"prompt": "Chip demand"}).json()
     story_id = wait_for_job(client, job["job_id"])["story_id"]
 
     other = make_client()
@@ -309,7 +309,7 @@ def test_create_story_passes_user_style_profile(client: TestClient) -> None:
         record.set_status("done")
 
     client.app.state.generation_runner = runner
-    response = client.post("/api/stories", json={"topic": "Chip demand"})
+    response = client.post("/api/stories", json={"prompt": "Chip demand"})
     assert response.status_code == 202
     assert captured["style_profile"] == profile
 
@@ -323,7 +323,7 @@ def test_create_story_passes_none_without_profile(client: TestClient) -> None:
         record.set_status("done")
 
     client.app.state.generation_runner = runner
-    response = client.post("/api/stories", json={"topic": "Chip demand"})
+    response = client.post("/api/stories", json={"prompt": "Chip demand"})
     assert response.status_code == 202
     assert captured["style_profile"] is None
 
@@ -339,7 +339,7 @@ def test_create_story_passes_user_sampling_params(client: TestClient) -> None:
         record.set_status("done")
 
     client.app.state.generation_runner = runner
-    response = client.post("/api/stories", json={"topic": "Chip demand"})
+    response = client.post("/api/stories", json={"prompt": "Chip demand"})
     assert response.status_code == 202
     assert captured["temperature"] == 1.2
     assert captured["top_p"] == 0.6
@@ -356,7 +356,7 @@ def test_edit_story_uses_user_sampling_params(client: TestClient) -> None:
         return markdown
 
     client.app.state.editor = editor
-    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+    job = client.post("/api/stories", json={"prompt": "Chip demand"}).json()
     story_id = wait_for_job(client, job["job_id"])["story_id"]
 
     response = client.post(f"/api/stories/{story_id}/edit", json={"prompt": "tighten"})
@@ -375,7 +375,7 @@ def test_edit_story_uses_user_style_profile(client: TestClient) -> None:
         return markdown
 
     client.app.state.editor = editor
-    job = client.post("/api/stories", json={"topic": "Chip demand"}).json()
+    job = client.post("/api/stories", json={"prompt": "Chip demand"}).json()
     story_id = wait_for_job(client, job["job_id"])["story_id"]
 
     response = client.post(f"/api/stories/{story_id}/edit", json={"prompt": "tighten"})
