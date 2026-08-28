@@ -8,7 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from factful.video.composer import compose_video
-from factful.video.exceptions import VideoRenderError, ImageSourceError, TTSError
+from factful.video.exceptions import ImageSourceError, TTSError, VideoRenderError
 from factful.video.ffmpeg import ensure_ffmpeg
 from factful.video.settings import VideoSettings
 from factful.video.slides import parse_slides

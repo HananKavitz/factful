@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from factful.video.slides import parse_slides, Slide
+from factful.video.slides import Slide, parse_slides
 
 
 def test_empty_markdown_returns_empty_list() -> None:

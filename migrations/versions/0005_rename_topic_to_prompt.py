@@ -11,8 +11,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from alembic import op
-import sqlalchemy as sa
-
 
 revision: str = "0005_rename_topic_to_prompt"
 down_revision: str | None = "0004_add_videos_table"

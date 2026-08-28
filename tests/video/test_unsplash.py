@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import httpx
@@ -36,9 +35,7 @@ def _mock_random_response(photo: dict) -> list[dict]:
 
 def test_validate_with_valid_key_passes() -> None:
     transport = httpx.MockTransport(
-        lambda req: httpx.Response(
-            200, json=_mock_search_response([_mock_photo()])
-        )
+        lambda req: httpx.Response(200, json=_mock_search_response([_mock_photo()]))
     )
     client = httpx.Client(transport=transport)
     source = UnsplashSource("valid-key", http_client=client)
@@ -53,9 +50,7 @@ def test_validate_with_empty_key_fails() -> None:
 
 
 def test_validate_with_no_results_returns_error() -> None:
-    transport = httpx.MockTransport(
-        lambda req: httpx.Response(200, json=_mock_search_response([]))
-    )
+    transport = httpx.MockTransport(lambda req: httpx.Response(200, json=_mock_search_response([])))
     client = httpx.Client(transport=transport)
     source = UnsplashSource("key", http_client=client)
     result = source.validate(heading="XyzzyUnknown", body="")

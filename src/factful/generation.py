@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -23,6 +24,8 @@ from factful.style.schema import StyleProfile
 from factful.video import render_video
 from factful.video.settings import VideoSettings as VideoRenderSettings
 from factful.video.unsplash import UnsplashSource
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -89,9 +92,7 @@ def run_generation(
     title = result.state.title or ""
     if not title:
         title = (
-            request.prompt[:80].rsplit(" ", 1)[0]
-            if len(request.prompt) > 80
-            else request.prompt
+            request.prompt[:80].rsplit(" ", 1)[0] if len(request.prompt) > 80 else request.prompt
         )
     with sessions() as db:
         story = Story(
@@ -255,12 +256,12 @@ def run_video_render(
         if output_path.exists():
             file_size_bytes = output_path.stat().st_size
             try:
-                from factful.video.ffmpeg import ensure_ffmpeg, check_ffmpeg_version
-
-                ffmpeg = ensure_ffmpeg()
                 import subprocess
 
-                result = subprocess.run(
+                from factful.video.ffmpeg import ensure_ffmpeg
+
+                ffmpeg = ensure_ffmpeg()
+                result = subprocess.run(  # noqa: S603  # trusted path from ensure_ffmpeg()
                     [str(ffmpeg), "-i", str(output_path)],
                     capture_output=True,
                     text=True,
@@ -279,7 +280,7 @@ def run_video_render(
                             elif "x" in part and any(c.isdigit() for c in part):
                                 resolution = part.strip()
             except Exception:
-                pass
+                logger.warning("Failed to probe video metadata", exc_info=True)
 
         video = Video(
             story_id=story_id,

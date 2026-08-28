@@ -17,6 +17,8 @@ class VideoSettings(BaseModel):
         description="Unsplash API access key. Empty = ImageSourceError at pre-validation.",
     )
     max_concurrent_fetches: int = Field(
-        default=3, ge=1, le=10,
+        default=3,
+        ge=1,
+        le=10,
         description="Max parallel image downloads + TTS generations.",
     )

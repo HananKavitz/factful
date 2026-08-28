@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from factful.video.relevance import keyword_overlap, noun_jaccard, _tokenize, _extract_nouns
+from factful.video.relevance import _extract_nouns, _tokenize, keyword_overlap, noun_jaccard
 
 
 class TestTokenize:

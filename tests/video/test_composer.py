@@ -114,9 +114,7 @@ def test_compose_video_creates_output(
     assert mock_mov.concatenate_videoclips.called
 
 
-def test_empty_slides_raises(
-    settings: VideoSettings, tmp_path: Path
-) -> None:
+def test_empty_slides_raises(settings: VideoSettings, tmp_path: Path) -> None:
     with pytest.raises(CompositionError, match="empty slide list"):
         compose_video(
             slides=[],
@@ -196,9 +194,7 @@ def test_cancellation_during_compose_returns_early(
     assert not out.exists()
 
 
-def test_slide_without_body_text_does_not_crash(
-    settings: VideoSettings, tmp_path: Path
-) -> None:
+def test_slide_without_body_text_does_not_crash(settings: VideoSettings, tmp_path: Path) -> None:
     slides_no_body = [Slide(heading="Only Heading", body_lines=[])]
     img = tmp_path / "img.jpg"
     img.write_bytes(b"fake")
@@ -243,9 +239,7 @@ def test_slide_without_body_text_does_not_crash(
     assert result == out
 
 
-def test_moviepy_import_error_raises(
-    settings: VideoSettings, tmp_path: Path
-) -> None:
+def test_moviepy_import_error_raises(settings: VideoSettings, tmp_path: Path) -> None:
     out = tmp_path / "out.mp4"
     with (
         patch("factful.video.composer.ensure_ffmpeg"),

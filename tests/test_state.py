@@ -1,5 +1,5 @@
 from factful.schemas import Citation, FactVerdict, SourceBundle
-from factful.state import CRITICAL_STATUSES, PassRecord, PipelineState
+from factful.state import PassRecord, PipelineState
 
 VERIFIED = FactVerdict(claim_id="c1", status="verified", confidence=0.9, reason="ok")
 CONTRADICTED = FactVerdict(claim_id="c1", status="contradicted", confidence=0.4, reason="x")

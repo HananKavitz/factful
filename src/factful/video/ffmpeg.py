@@ -60,7 +60,7 @@ def install_ffmpeg() -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        import ffmpeg_downloader
+        import ffmpeg_downloader  # noqa: F401  # needed for get_bin_dir below
     except ImportError as exc:
         raise VideoRenderError(
             "ffmpeg-downloader is not installed; run `uv sync` to install dependencies"
@@ -78,9 +78,7 @@ def install_ffmpeg() -> Path:
             timeout=120,
         )
         if result.returncode != 0:
-            raise VideoRenderError(
-                f"FFmpeg download failed: {result.stderr.strip()}"
-            )
+            raise VideoRenderError(f"FFmpeg download failed: {result.stderr.strip()}")
 
         # Locate the installed binary — it's in ffmpeg\bin\ffmpeg.exe
         from ffmpeg_downloader._path import get_bin_dir
@@ -112,7 +110,7 @@ def install_ffmpeg() -> Path:
         shutil.copy2(installed_bin, target)
         _ensure_executable(target)
     except subprocess.TimeoutExpired:
-        raise VideoRenderError("FFmpeg download timed out after 120 seconds")
+        raise VideoRenderError("FFmpeg download timed out after 120 seconds") from None
     except Exception as exc:
         raise VideoRenderError(f"FFmpeg download failed: {exc}") from exc
 
@@ -120,10 +118,6 @@ def install_ffmpeg() -> Path:
         raise VideoRenderError("FFmpeg downloader did not produce a usable binary")
 
     return target
-
-    result = Path(ffmpeg_path)
-    _ensure_executable(result)
-    return result
 
 
 def _bundled_ffmpeg_path() -> Path:

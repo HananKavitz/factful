@@ -41,7 +41,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"factful {__version__}")
     sub = parser.add_subparsers(dest="command")
     generate = sub.add_parser("generate", parents=[common], help="generate an article")
-    generate.add_argument("prompt", type=str, help="generation prompt describing the article to write")
+    generate.add_argument(
+        "prompt", type=str, help="generation prompt describing the article to write"
+    )
     generate.add_argument("--angle", type=str, default=DEFAULT_ANGLE, help="framing angle")
     generate.add_argument(
         "--max-sources",
@@ -69,7 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         help="output Profile YAML path (default: profiles/<name>.yaml)",
     )
-    install_ffmpeg = sub.add_parser(
+    sub.add_parser(
         "install-ffmpeg", parents=[common], help="download portable FFmpeg if not on PATH"
     )
     return parser

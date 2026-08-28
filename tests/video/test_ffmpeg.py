@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from factful.video.exceptions import VideoRenderError
-from factful.video.ffmpeg import ensure_ffmpeg, install_ffmpeg, check_ffmpeg_version
+from factful.video.ffmpeg import check_ffmpeg_version, ensure_ffmpeg, install_ffmpeg
 
 
 class TestEnsureFfmpeg:

@@ -21,7 +21,12 @@ def upgrade() -> None:
     op.create_table(
         "videos",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("story_id", sa.Integer(), sa.ForeignKey("stories.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "story_id",
+            sa.Integer(),
+            sa.ForeignKey("stories.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("file_path", sa.String(1024), nullable=False),
         sa.Column("status", sa.String(32), nullable=False, server_default="completed"),
         sa.Column("voice", sa.String(64), nullable=False),
