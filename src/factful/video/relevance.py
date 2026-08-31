@@ -240,15 +240,15 @@ def keyword_overlap(heading: str, image_tags: Sequence[str], threshold: float = 
     return len(overlap) / len(heading_tokens) >= threshold
 
 
-def noun_jaccard(heading: str, alt_description: str | None, threshold: float = 0.15) -> bool:
+def noun_jaccard(heading: str, text: str | None, threshold: float = 0.15) -> bool:
     """Return True if noun-level Jaccard similarity meets the threshold.
 
-    Extracts nouns from both the heading and the alt description,
-    then computes |intersection| / |union|.
+    Extracts nouns from both the heading and *text* (e.g. an image
+    description or combined tags), then computes |intersection| / |union|.
 
     Args:
         heading: The slide heading text.
-        alt_description: The image's alt text or description (may be None).
+        text: The image's text to compare against (may be None).
         threshold: Minimum Jaccard score.
 
     Returns:
@@ -257,11 +257,34 @@ def noun_jaccard(heading: str, alt_description: str | None, threshold: float = 0
     heading_nouns = _extract_nouns(heading)
     if not heading_nouns:
         return True  # heading has no extractable nouns — pass
-    if not alt_description:
-        return True  # no description to compare — pass
-    desc_nouns = _extract_nouns(alt_description)
+    if not text:
+        return True  # no text to compare — pass
+    desc_nouns = _extract_nouns(text)
     if not desc_nouns:
-        return False  # description has no nouns but heading does — fail
+        return False  # text has no nouns but heading does — fail
     union = heading_nouns | desc_nouns
     intersection = heading_nouns & desc_nouns
     return len(intersection) / len(union) >= threshold
+
+
+def combined_token_overlap(query_tokens: set[str], photo_text: str, threshold: float = 0.3) -> bool:
+    """Return True if at least *threshold* of query tokens appear in *photo_text*.
+
+    Unlike ``keyword_overlap``, this scores against arbitrary combined text
+    (tags + descriptions) rather than just a list of tags.
+
+    Args:
+        query_tokens: Tokenized, stopword-filtered search query.
+        photo_text: Combined text from the photo (tags, alt_description, etc.).
+        threshold: Minimum proportion of query tokens that must match.
+
+    Returns:
+        True if the photo text is sufficiently relevant to the query.
+    """
+    if not query_tokens:
+        return True
+    text_tokens = set(_tokenize(photo_text))
+    if not text_tokens:
+        return False
+    overlap = query_tokens & text_tokens
+    return len(overlap) / len(query_tokens) >= threshold

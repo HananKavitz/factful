@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from factful.video.relevance import _extract_nouns, _tokenize, keyword_overlap, noun_jaccard
+from factful.video.relevance import (
+    _extract_nouns,
+    _tokenize,
+    combined_token_overlap,
+    keyword_overlap,
+    noun_jaccard,
+)
 
 
 class TestTokenize:
@@ -97,3 +103,31 @@ class TestNounJaccard:
         assert noun_jaccard("Apple", "Apple", threshold=0.9)
         # heading nouns: {apple, california}, desc nouns: {apple, microsoft} → 1/3 ≈ 0.33
         assert not noun_jaccard("Apple California", "Apple Microsoft", threshold=0.9)
+
+
+class TestCombinedTokenOverlap:
+    def test_full_match_passes(self) -> None:
+        assert combined_token_overlap({"ai", "technology"}, "AI technology and computers")
+
+    def test_partial_match_passes_above_threshold(self) -> None:
+        assert combined_token_overlap({"ai", "technology", "future"}, "AI and robots")
+
+    def test_no_match_fails(self) -> None:
+        assert not combined_token_overlap({"ai", "technology"}, "cooking food kitchen")
+
+    def test_empty_query_passes(self) -> None:
+        assert combined_token_overlap(set(), "anything here")
+
+    def test_empty_photo_text_fails_when_query_has_tokens(self) -> None:
+        assert not combined_token_overlap({"ai"}, "")
+
+    def test_combined_text_includes_tags_and_descriptions(self) -> None:
+        photo_text = "nature landscape trees A scenic mountain view at sunset"
+        assert combined_token_overlap({"mountain", "sunset"}, photo_text)
+
+    def test_case_insensitive(self) -> None:
+        assert combined_token_overlap({"ai"}, "Artificial Intelligence AI")
+
+    def test_custom_threshold(self) -> None:
+        assert combined_token_overlap({"ai", "technology"}, "ai technology", threshold=1.0)
+        assert not combined_token_overlap({"ai", "technology"}, "ai", threshold=1.0)

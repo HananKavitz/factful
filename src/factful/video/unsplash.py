@@ -5,17 +5,50 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import Path
+from typing import Any
 
 import httpx
 
-from factful.video.relevance import keyword_overlap, noun_jaccard
+from factful.video.relevance import _extract_nouns, _tokenize
 from factful.video.sources import ImageSourceError
 
 _UNSPLASH_API = "https://api.unsplash.com"
 _DEFAULT_TIMEOUT = 30.0
 _MAX_RETRIES = 3
+_SEARCH_PER_PAGE = 20
+_RELEVANCE_THRESHOLD = 0.3
 
 _IMAGE_CACHE_DIR = Path("factful_videos/images")
+
+# Headings that carry no searchable topic and should be ignored in favour
+# of the slide body or a broader fallback.
+_GENERIC_CONTENT_WORDS: frozenset[str] = frozenset(
+    {
+        "introduction",
+        "intro",
+        "overview",
+        "background",
+        "conclusion",
+        "closing",
+        "summary",
+        "wrap",
+        "wrapping",
+        "bottom",
+        "line",
+        "final",
+        "thoughts",
+        "key",
+        "takeaways",
+        "recap",
+        "next",
+        "steps",
+        "big",
+        "picture",
+        "brief",
+        "what",
+        "means",
+    }
+)
 
 
 class UnsplashSource:
@@ -42,7 +75,6 @@ class UnsplashSource:
         if not self._api_key:
             return "Unsplash API key not configured"
 
-        # Quick check: try a lightweight search to confirm connectivity
         query = self._build_query(heading, body)
         try:
             resp = self._client.get(
@@ -79,15 +111,18 @@ class UnsplashSource:
 
         query = self._build_query(heading, body)
 
+        best_url: str | None = None
+        best_score = -1.0
+
         for attempt in range(_MAX_RETRIES):
             try:
                 resp = self._client.get(
-                    f"{_UNSPLASH_API}/photos/random",
+                    f"{_UNSPLASH_API}/search/photos",
                     params={
                         "query": query,
+                        "per_page": _SEARCH_PER_PAGE,
                         "orientation": "landscape",
                         "content_filter": "high",
-                        "count": 1,
                     },
                     headers={"Authorization": f"Client-ID {self._api_key}"},
                 )
@@ -100,33 +135,24 @@ class UnsplashSource:
                 resp.raise_for_status()
 
                 data = resp.json()
-                if not data:
-                    # Broaden query on retry
-                    query = self._broaden_query(query)
-                    continue
-
-                photo = data[0] if isinstance(data, list) else data
-                tags = [t["title"] for t in photo.get("tags", [])]
-                alt_description = photo.get("alt_description")
-
-                # Check relevance
-                if self._relevance_mode == "noun_jaccard":
-                    relevant = noun_jaccard(heading, alt_description)
-                else:
-                    relevant = keyword_overlap(heading, tags)
-
-                if not relevant:
+                results = data.get("results", [])
+                if not results:
                     if attempt < _MAX_RETRIES - 1:
-                        # Still have retries — broaden and try again
                         query = self._broaden_query(query)
                         continue
-                    # Last attempt: accept the image even if relevance is
-                    # marginal — we've broadened the query as far as we can
-                    pass
+                    break
 
-                # Download the image
-                download_url = photo["urls"]["raw"]
-                return self._download(download_url, output_path)
+                for photo in results:
+                    score = self._score_relevance(query, photo)
+                    if score > best_score:
+                        best_score = score
+                        best_url = photo["urls"]["raw"]
+
+                if best_score >= _RELEVANCE_THRESHOLD and best_url:
+                    return self._download(best_url, output_path)
+
+                if attempt < _MAX_RETRIES - 1:
+                    query = self._broaden_query(query)
 
             except httpx.HTTPError as exc:
                 if attempt == _MAX_RETRIES - 1:
@@ -134,25 +160,17 @@ class UnsplashSource:
                         f"failed to fetch image for slide '{heading}' after "
                         f"{_MAX_RETRIES} attempts: {exc}"
                     ) from exc
-                # Broaden query and retry
                 query = self._broaden_query(query)
+
+        if best_url:
+            return self._download(best_url, output_path)
 
         raise ImageSourceError(
             f"no relevant image found for '{heading}' after {_MAX_RETRIES} attempts"
         )
 
     def _build_query(self, heading: str, body: str = "") -> str:
-        """Convert a heading and body into an Unsplash search query.
-
-        Combines tokens from both heading and body, with heading tokens
-        taking priority. Duplicate tokens are not repeated. When the
-        heading is generic (few meaningful tokens), the body enriches
-        the query with actual topic words.
-        """
-        from factful.video.relevance import _tokenize
-
-        # Strip leading instruction/imperative words that signal the heading
-        # is a user prompt rather than a searchable topic phrase.
+        """Convert a heading and body into an Unsplash search query."""
         heading = re.sub(
             r"^(story about|a story about|research|investigate|explore|analyze"
             r"|describe|explain|discuss|read|bring|include)\s+",
@@ -163,21 +181,65 @@ class UnsplashSource:
         h_tokens = _tokenize(heading)
         b_tokens = _tokenize(body)
 
-        # Deduplicate while preserving heading priority
+        if self._is_generic_heading(heading) or not h_tokens:
+            return " ".join(b_tokens[:6]) if b_tokens else "trending"
+
         seen = set(h_tokens)
         combined = h_tokens + [t for t in b_tokens if t not in seen]
-        return " ".join(combined[:7]) if combined else "trending"
+        return " ".join(combined[:6]) if combined else "trending"
+
+    def _is_generic_heading(self, heading: str) -> bool:
+        """Return True if the heading contains no searchable topic words."""
+        tokens = _tokenize(heading)
+        if not tokens:
+            return True
+        meaningful = [t for t in tokens if t not in _GENERIC_CONTENT_WORDS]
+        return len(meaningful) == 0
 
     def _broaden_query(self, query: str) -> str:
         """Return a broader version of the query for retry."""
         tokens = query.split()
         if len(tokens) <= 1:
             return "trending"
-        return " ".join(tokens[:-1])  # drop last word
+        return " ".join(tokens[:-1])
+
+    def _score_relevance(self, query_text: str, photo: dict[str, Any]) -> float:
+        """Score a photo's relevance to the query text (0.0–1.0)."""
+        photo_text = self._photo_text(photo)
+        if self._relevance_mode == "noun_jaccard":
+            heading_nouns = _extract_nouns(query_text)
+            if not heading_nouns:
+                return 1.0
+            desc_nouns = _extract_nouns(photo_text)
+            if not desc_nouns:
+                return 0.0
+            union = heading_nouns | desc_nouns
+            intersection = heading_nouns & desc_nouns
+            return len(intersection) / len(union)
+
+        query_tokens = set(_tokenize(query_text))
+        if not query_tokens:
+            return 1.0
+        text_tokens = set(_tokenize(photo_text))
+        if not text_tokens:
+            return 0.0
+        overlap = query_tokens & text_tokens
+        return len(overlap) / len(query_tokens)
+
+    def _photo_text(self, photo: dict[str, Any]) -> str:
+        """Combine all searchable text from a photo into one string."""
+        parts: list[str] = []
+        for tag in photo.get("tags", []):
+            if isinstance(tag, dict) and "title" in tag:
+                parts.append(tag["title"])
+        for key in ("alt_description", "description"):
+            val = photo.get(key)
+            if val:
+                parts.append(str(val))
+        return " ".join(parts)
 
     def _download(self, url: str, output_path: Path) -> Path:
         """Download an image from *url* to *output_path*, with caching."""
-        # Check cache
         url_hash = hashlib.sha256(url.encode()).hexdigest()
         _IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         cache_path = _IMAGE_CACHE_DIR / f"{url_hash}.jpg"
@@ -188,13 +250,11 @@ class UnsplashSource:
             shutil.copy2(cache_path, output_path)
             return output_path
 
-        # Download
         resp = self._client.get(url)
         resp.raise_for_status()
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(resp.content)
 
-        # Cache
         cache_path.write_bytes(resp.content)
         return output_path
