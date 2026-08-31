@@ -43,7 +43,7 @@ class UnsplashSource:
             return "Unsplash API key not configured"
 
         # Quick check: try a lightweight search to confirm connectivity
-        query = self._build_query(heading)
+        query = self._build_query(heading, body)
         try:
             resp = self._client.get(
                 f"{_UNSPLASH_API}/search/photos",
@@ -77,7 +77,7 @@ class UnsplashSource:
         if not self._api_key:
             raise ImageSourceError(f"Unsplash API key not configured (slide: '{heading}')")
 
-        query = self._build_query(heading)
+        query = self._build_query(heading, body)
 
         for attempt in range(_MAX_RETRIES):
             try:
@@ -141,8 +141,14 @@ class UnsplashSource:
             f"no relevant image found for '{heading}' after {_MAX_RETRIES} attempts"
         )
 
-    def _build_query(self, heading: str) -> str:
-        """Convert a heading into an Unsplash search query."""
+    def _build_query(self, heading: str, body: str = "") -> str:
+        """Convert a heading and body into an Unsplash search query.
+
+        Combines tokens from both heading and body, with heading tokens
+        taking priority. Duplicate tokens are not repeated. When the
+        heading is generic (few meaningful tokens), the body enriches
+        the query with actual topic words.
+        """
         from factful.video.relevance import _tokenize
 
         # Strip leading instruction/imperative words that signal the heading
@@ -154,8 +160,13 @@ class UnsplashSource:
             heading,
             flags=re.IGNORECASE,
         )
-        tokens = _tokenize(heading)
-        return " ".join(tokens[:5]) if tokens else "trending"
+        h_tokens = _tokenize(heading)
+        b_tokens = _tokenize(body)
+
+        # Deduplicate while preserving heading priority
+        seen = set(h_tokens)
+        combined = h_tokens + [t for t in b_tokens if t not in seen]
+        return " ".join(combined[:7]) if combined else "trending"
 
     def _broaden_query(self, query: str) -> str:
         """Return a broader version of the query for retry."""

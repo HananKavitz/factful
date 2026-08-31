@@ -153,6 +153,109 @@ def test_validate_with_403_returns_error() -> None:
     assert "invalid" in result or "rate-limited" in result
 
 
+def test_fetch_body_enriches_query_for_generic_heading() -> None:
+    """When the heading is generic, body text should enrich the Unsplash query.
+
+    The mock photo tags must include the heading word so the relevance
+    check passes on the first attempt (otherwise retry broadens the query
+    before the download and we'd capture the wrong thing).
+    """
+    photo = _mock_photo(tags=["introduction", "neural", "networks", "ai"])
+    image_bytes = b"fake-jpeg-bytes"
+    captured_query: str | None = None
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        nonlocal captured_query
+        if "/photos/random" in req.url.path:
+            captured_query = req.url.params.get("query")
+            return httpx.Response(200, json=_mock_random_response(photo))
+        if "images.unsplash.com" in req.url.host:
+            return httpx.Response(200, content=image_bytes)
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport)
+    source = UnsplashSource("key", http_client=client)
+
+    out = Path("test_output.jpg")
+    try:
+        source.fetch(
+            heading="Introduction",
+            body="Neural networks have transformed artificial intelligence",
+            output_path=out,
+        )
+        assert captured_query is not None
+        # Query should contain body-derived terms, not just "introduction" or "trending"
+        assert "neural" in captured_query
+        assert "artificial" in captured_query
+        assert "intelligence" in captured_query
+    finally:
+        out.unlink(missing_ok=True)
+
+
+def test_fetch_body_does_not_duplicate_heading_tokens() -> None:
+    """Heading tokens take priority; body tokens that duplicate heading are omitted."""
+    photo = _mock_photo(tags=["ai", "technology", "computer"])
+    image_bytes = b"fake-jpeg-bytes"
+    captured_query: str | None = None
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        nonlocal captured_query
+        if "/photos/random" in req.url.path:
+            captured_query = req.url.params.get("query")
+            return httpx.Response(200, json=_mock_random_response(photo))
+        if "images.unsplash.com" in req.url.host:
+            return httpx.Response(200, content=image_bytes)
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport)
+    source = UnsplashSource("key", http_client=client)
+
+    out = Path("test_output2.jpg")
+    try:
+        source.fetch(
+            heading="AI Technology",
+            body="Modern artificial intelligence technology is advancing rapidly",
+            output_path=out,
+        )
+        assert captured_query is not None
+        tokens = captured_query.split()
+        # "ai" and "technology" should appear only once each
+        assert tokens.count("ai") == 1
+        assert tokens.count("technology") == 1
+    finally:
+        out.unlink(missing_ok=True)
+
+
+def test_fetch_uses_body_for_validate_too() -> None:
+    """validate() should also use body to build the query."""
+    captured_query: str | None = None
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        nonlocal captured_query
+        if "/search/photos" in req.url.path:
+            captured_query = req.url.params.get("query")
+            return httpx.Response(200, json=_mock_search_response([_mock_photo()]))
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport)
+    source = UnsplashSource("key", http_client=client)
+
+    source.validate(
+        heading="Introduction",
+        body="Neural networks and deep learning have revolutionized AI",
+    )
+    assert captured_query is not None
+    assert "neural" in captured_query
+    assert "learning" in captured_query
+    # The generic heading word should also be in the query
+    assert "introduction" in captured_query
+    # And there should be more than just the heading word
+    assert len(captured_query.split()) > 1
+
+
 def test_implements_image_source_protocol() -> None:
     from factful.video.sources import ImageSource
 
