@@ -23,6 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 turso = ["sqlalchemy-libsql>=0.2.0"]
+video = ["sentence-transformers>=3.0"]
 
 [project.scripts]
 factful = "factful.cli:main"
@@ -76,3 +77,11 @@ show_missing = true
 
 [tool.uv]
 package = true
+
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["sentence_transformers", "sentence_transformers.*"]
+ignore_missing_imports = true

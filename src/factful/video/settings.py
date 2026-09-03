@@ -22,3 +22,40 @@ class VideoSettings(BaseModel):
         le=10,
         description="Max parallel image downloads + TTS generations.",
     )
+
+    # --- All-AI image generation settings ---
+    image_source_type: str = Field(
+        default="unsplash",
+        pattern="^(unsplash|llm|hybrid)$",
+        description="Which image source to use for slide backgrounds.",
+    )
+    prompt_model: str = Field(
+        default="openai/gpt-4o-mini",
+        description="LLM model for prompt enrichment (cheap, text-only).",
+    )
+    image_model: str = Field(
+        default="openai/gpt-image-3",
+        description="Image generation model for LLMImageSource.",
+    )
+    image_api_key: str = Field(
+        default="",
+        description="API key for the image generation service (OpenRouter).",
+    )
+    min_semantic_score: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Minimum SBERT semantic similarity for prompt validation.",
+    )
+    enable_llm_verify: bool = Field(
+        default=False,
+        description="Use GPT-4o vision to verify image matches prompt (higher cost).",
+    )
+    regenerate_on_failure: bool = Field(
+        default=True,
+        description="Retry with refined prompt if quality check fails.",
+    )
+    debug_save_prompts: bool = Field(
+        default=False,
+        description="Save prompt text files alongside generated images for debugging.",
+    )

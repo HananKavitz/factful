@@ -48,3 +48,12 @@ video:
   voice: en-US-AriaNeural
   image_relevance_mode: keyword
   max_concurrent_fetches: 3
+  # All-AI image generation
+  image_source_type: unsplash
+  prompt_model: openai/gpt-4o-mini
+  image_model: openai/gpt-image-3
+  image_api_key: ""
+  min_semantic_score: 0.3
+  enable_llm_verify: false
+  regenerate_on_failure: true
+  debug_save_prompts: false

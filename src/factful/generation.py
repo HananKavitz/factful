@@ -22,6 +22,11 @@ from factful.runtime import build_runtime
 from factful.style.neutral import neutral_profile
 from factful.style.schema import StyleProfile
 from factful.video import render_video
+from factful.video.llm_image_source import LLMImageSource
+from factful.video.prompt_generator import PromptGenerator
+from factful.video.prompt_validator import PromptValidator
+from factful.video.quality_gate import QualityGate
+from factful.video.sbert_checker import SBERTRelevanceChecker
 from factful.video.settings import VideoSettings as VideoRenderSettings
 from factful.video.unsplash import UnsplashSource
 
@@ -173,6 +178,58 @@ def _video_render_progress(
 _VIDEO_DIR = Path(os.environ.get("FACTFUL_VIDEO_DIR", "factful_videos"))
 
 
+def _build_image_source(
+    video_settings: VideoRenderSettings,
+    env: Mapping[str, str],
+) -> UnsplashSource | LLMImageSource:
+    """Build the appropriate image source based on config."""
+    if video_settings.image_source_type == "llm":
+        return _build_llm_image_source(video_settings, env)
+    return _build_unsplash_source(video_settings)
+
+
+def _build_unsplash_source(video_settings: VideoRenderSettings) -> UnsplashSource:
+    """Build an UnsplashSource from video settings."""
+    return UnsplashSource(
+        api_key=video_settings.unsplash_api_key,
+        relevance_mode=video_settings.image_relevance_mode,
+    )
+
+
+def _build_llm_image_source(
+    video_settings: VideoRenderSettings,
+    env: Mapping[str, str],
+) -> LLMImageSource:
+    """Build an LLMImageSource with prompt enrichment and quality gate."""
+    from factful.llm.client import OpenRouterClient
+
+    base_url = env.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    api_key = video_settings.image_api_key or env.get("LLM_API_KEY", "")
+
+    prompt_client = OpenRouterClient(
+        model=video_settings.prompt_model,
+        api_key=api_key,
+        base_url=base_url,
+    )
+    prompt_generator = PromptGenerator(client=prompt_client)
+
+    validator = PromptValidator()
+    sbert = SBERTRelevanceChecker()
+    quality_gate = QualityGate(
+        validator=validator,
+        sbert=sbert,
+        min_semantic_score=video_settings.min_semantic_score,
+    )
+
+    return LLMImageSource(
+        api_key=api_key,
+        prompt_generator=prompt_generator,
+        quality_gate=quality_gate,
+        image_model=video_settings.image_model,
+        regenerate_on_failure=video_settings.regenerate_on_failure,
+    )
+
+
 def run_video_render(
     record: JobRecord,
     story_id: int,
@@ -205,10 +262,7 @@ def run_video_render(
                 min_slide_seconds=settings.video.min_slide_seconds,
             )
 
-        image_source = UnsplashSource(
-            api_key=video_settings.unsplash_api_key,
-            relevance_mode=video_settings.image_relevance_mode,
-        )
+        image_source = _build_image_source(video_settings, env)
 
         output_path = _VIDEO_DIR / f"story_{story_id}_{record.id}.mp4"
         slide_progress, compose_progress = _video_render_progress(record)

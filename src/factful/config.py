@@ -93,6 +93,7 @@ _WEB_ENV_VARS: dict[str, str] = {
 
 _VIDEO_ENV_VARS: dict[str, str] = {
     "unsplash_api_key": "UNSPLASH_ACCESS_KEY",
+    "image_api_key": "OPENROUTER_API_KEY",
 }
 
 
