@@ -37,10 +37,6 @@ class VideoSettings(BaseModel):
         default="openai/gpt-image-3",
         description="Image generation model for LLMImageSource.",
     )
-    image_api_key: str = Field(
-        default="",
-        description="API key for the image generation service (OpenRouter).",
-    )
     min_semantic_score: float = Field(
         default=0.3,
         ge=0.0,

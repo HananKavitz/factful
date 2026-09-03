@@ -204,7 +204,7 @@ def _build_llm_image_source(
     from factful.llm.client import OpenRouterClient
 
     base_url = env.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-    api_key = video_settings.image_api_key or env.get("LLM_API_KEY", "")
+    api_key = env.get("LLM_API_KEY", "")
 
     prompt_client = OpenRouterClient(
         model=video_settings.prompt_model,
