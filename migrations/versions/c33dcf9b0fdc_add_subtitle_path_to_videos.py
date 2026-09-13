@@ -5,6 +5,7 @@ Revises: 0005_rename_topic_to_prompt
 Create Date: 2026-09-04 18:24:25.603613
 
 """
+
 from __future__ import annotations
 
 import sqlalchemy as sa

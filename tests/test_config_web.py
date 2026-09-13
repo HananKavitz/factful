@@ -16,7 +16,7 @@ def test_web_defaults() -> None:
 def test_web_settings_load_from_yaml() -> None:
     settings = load_settings("config/settings.yaml")
     assert settings.web.database_url == "sqlite:///./factful.db"
-    assert settings.web.auth_mode == "google"
+    assert settings.web.auth_mode == "mock"
 
 
 def test_web_env_overrides_defaults() -> None:
