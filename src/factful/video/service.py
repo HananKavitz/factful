@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from factful.llm.client import OpenRouterClient
 from factful.models import Story, Video
 from factful.video.exceptions import VideoGenerationError
+from factful.video.generators.ai import AiGenerator
 from factful.video.generators.stock import StockGenerator
 from factful.video.interfaces import (
     VideoGenerator,
@@ -68,9 +69,27 @@ def build_video_service(
         tts_pitch=settings.tts_pitch,
     )
 
+    # Build the AI generator
+    kling_access_key = env.get(settings.ai_api_key_env + "_ACCESS_KEY", "")
+    kling_secret_key = env.get(settings.ai_api_key_env + "_SECRET_KEY", "")
+    ai_generator = AiGenerator(
+        access_key=kling_access_key,
+        secret_key=kling_secret_key,
+        script_director=script_director,
+        width=settings.width,
+        height=settings.height,
+        fps=settings.fps,
+        voice=settings.voice,
+        tts_rate=settings.tts_rate,
+        tts_pitch=settings.tts_pitch,
+        model=settings.ai_model,
+        clip_duration_seconds=settings.ai_clip_duration_seconds,
+    )
+
     # Registry of available strategies
     generators: dict[str, VideoGenerator] = {
         "stock": stock_generator,
+        "ai": ai_generator,
     }
 
     return VideoService(
