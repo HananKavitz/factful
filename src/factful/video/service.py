@@ -18,6 +18,7 @@ from factful.llm.client import OpenRouterClient
 from factful.models import Story, Video
 from factful.video.exceptions import VideoGenerationError
 from factful.video.generators.ai import AiGenerator
+from factful.video.generators.hybrid import HybridGenerator
 from factful.video.generators.stock import StockGenerator
 from factful.video.interfaces import (
     VideoGenerator,
@@ -86,10 +87,26 @@ def build_video_service(
         clip_duration_seconds=settings.ai_clip_duration_seconds,
     )
 
+    # Build the hybrid generator
+    hybrid_generator = HybridGenerator(
+        script_director=script_director,
+        pexels_api_key=pexels_api_key,
+        ai_access_key=kling_access_key,
+        ai_secret_key=kling_secret_key,
+        width=settings.width,
+        height=settings.height,
+        fps=settings.fps,
+        voice=settings.voice,
+        tts_rate=settings.tts_rate,
+        tts_pitch=settings.tts_pitch,
+        ai_budget_seconds=settings.hybrid_ai_budget_seconds,
+    )
+
     # Registry of available strategies
     generators: dict[str, VideoGenerator] = {
         "stock": stock_generator,
         "ai": ai_generator,
+        "hybrid": hybrid_generator,
     }
 
     return VideoService(
