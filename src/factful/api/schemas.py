@@ -102,6 +102,7 @@ class VideoInfo(BaseModel):
     status: str
     error_message: str | None = None
     file_exists: bool
+    subtitles_url: str | None = None
     created_at: datetime
 
 

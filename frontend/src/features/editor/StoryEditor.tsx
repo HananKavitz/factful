@@ -13,6 +13,8 @@ import { CreateStoryModal } from "../gallery/CreateStoryModal";
 import { NoteModal } from "./NoteModal";
 import { VideoTab } from "./VideoTab";
 import type { StoryDetail } from "../../types";
+import { useAppDispatch } from "../../app/hooks";
+import { baseApi } from "../../app/api";
 
 const SAVE_DELAY_MS = 800;
 const VIDEO_POLL_INTERVAL_MS = 2000;
@@ -61,6 +63,7 @@ function EditorForm({ story }: EditorFormProps) {
   const [renderVideo, { isLoading: renderingVideo }] = useRenderVideoMutation();
   const [cancelJob, { isLoading: cancelling }] = useCancelJobMutation();
   const navigate = useNavigate();
+  const dispatch = useAppDispatch();
 
   const [title, setTitle] = useState(story.title);
   const [markdown, setMarkdown] = useState(story.markdown);
@@ -110,6 +113,7 @@ function EditorForm({ story }: EditorFormProps) {
     if (videoJob.status === "done") {
       setVideoJobId(null);
       setVideoError(null);
+      dispatch(baseApi.util.invalidateTags([{ type: "Story", id: story.id }]));
     } else if (videoJob.status === "error") {
       setVideoJobId(null);
       setVideoError(videoJob.error ?? "Video rendering failed.");
@@ -117,7 +121,7 @@ function EditorForm({ story }: EditorFormProps) {
       setVideoJobId(null);
       setVideoError("Video rendering was cancelled.");
     }
-  }, [videoJob]);
+  }, [videoJob, dispatch, story.id]);
 
   const debouncedTitle = useDebouncedValue(title, SAVE_DELAY_MS);
   const debouncedMarkdown = useDebouncedValue(markdown, SAVE_DELAY_MS);

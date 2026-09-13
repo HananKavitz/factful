@@ -142,6 +142,15 @@ export function VideoTab({
             className="w-full max-h-[calc(100vh-20rem)] rounded-md border"
             src={selectedVideo.url}
           >
+            {selectedVideo.subtitles_url && (
+              <track
+                kind="subtitles"
+                src={selectedVideo.subtitles_url}
+                srcLang="en"
+                label="English"
+                default
+              />
+            )}
             Your browser does not support the video tag.
           </video>
           <div className="mt-1 flex gap-4 text-xs text-slate-400">

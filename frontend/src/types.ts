@@ -42,6 +42,7 @@ export interface VideoInfo {
   status: string;
   error_message: string | null;
   file_exists: boolean;
+  subtitles_url?: string | null;
   created_at: string;
 }
 

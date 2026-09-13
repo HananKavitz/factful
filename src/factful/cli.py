@@ -71,9 +71,6 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         help="output Profile YAML path (default: profiles/<name>.yaml)",
     )
-    sub.add_parser(
-        "install-ffmpeg", parents=[common], help="download portable FFmpeg if not on PATH"
-    )
     return parser
 
 
@@ -173,14 +170,6 @@ def _generate_command(args: argparse.Namespace) -> int:
     return 0
 
 
-def _install_ffmpeg_command() -> int:
-    from factful.video.ffmpeg import install_ffmpeg
-
-    path = install_ffmpeg()
-    print(f"FFmpeg installed at {path}")
-    return 0
-
-
 def _configure_logging(verbose: bool) -> None:
     logger = logging.getLogger("factful")
     logger.setLevel(logging.INFO if verbose else logging.WARNING)
@@ -203,8 +192,6 @@ def main(argv: list[str] | None = None) -> int:
         return _generate_command(args)
     if args.command == "style":
         return _style_command(args)
-    if args.command == "install-ffmpeg":
-        return _install_ffmpeg_command()
     return 0
 
 

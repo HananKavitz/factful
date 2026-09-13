@@ -173,7 +173,6 @@ def render_story_video(
     sessions: Sessions,
 ) -> JobStatus:
     job_store: JobStore = request.app.state.job_store
-    renderer = request.app.state.video_renderer
     with sessions() as db:
         story = _owned_story(db, story_id, user.id)
         if story is None:
@@ -182,9 +181,42 @@ def render_story_video(
     voice = body.voice or "en-US-AriaNeural"
     job_store.submit(
         record,
-        lambda rec: renderer(rec, story_id=story_id, voice=voice, sessions=sessions),
+        lambda rec: _render_video_job(rec, story_id, voice, sessions, request),
     )
     return JobStatus.model_validate(record.snapshot())
+
+
+def _render_video_job(
+    record: JobRecord,
+    story_id: int,
+    voice: str,
+    sessions: sessionmaker[Session],
+    request: Request,
+) -> None:
+    """Stub: will be replaced by VideoService once built."""
+    record.set_error("Video generation is not yet configured. Backend service coming soon.")
+
+
+@router.get("/{story_id}/video/{video_id}/subtitles")
+def get_video_subtitles(
+    story_id: int,
+    video_id: int,
+    request: Request,  # noqa: ARG001
+    user: Annotated[User, Depends(get_current_user)],
+    sessions: Sessions,
+) -> FileResponse:
+    with sessions() as db:
+        story = _owned_story(db, story_id, user.id)
+        if story is None:
+            raise HTTPException(status_code=404, detail="story not found")
+        video = db.get(Video, video_id)
+        if video is None or video.story_id != story_id:
+            raise HTTPException(status_code=404, detail="video not found")
+        if video.status != "completed":
+            raise HTTPException(status_code=404, detail="video is not available")
+        if not video.subtitle_path or not os.path.exists(video.subtitle_path):
+            raise HTTPException(status_code=404, detail="subtitles not available")
+    return FileResponse(video.subtitle_path, media_type="text/vtt")
 
 
 @router.get("/{story_id}/video/{video_id}/file")
@@ -263,6 +295,10 @@ def _to_detail(story: Story) -> StoryDetail:
 
 def _video_info(video: Video) -> VideoInfo:
     file_exists = os.path.exists(video.file_path) if video.file_path else False
+    subtitles_url = (
+        f"/api/stories/{video.story_id}/video/{video.id}/subtitles"
+        if video.subtitle_path else None
+    )
     return VideoInfo(
         id=video.id,
         url=f"/api/stories/{video.story_id}/video/{video.id}/file",
@@ -273,5 +309,6 @@ def _video_info(video: Video) -> VideoInfo:
         status=video.status,
         error_message=video.error_message,
         file_exists=file_exists,
+        subtitles_url=subtitles_url,
         created_at=video.created_at,
     )
