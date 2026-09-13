@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, PropertyMock
+from unittest.mock import AsyncMock, MagicMock, PropertyMock
 from uuid import uuid4
 
 import httpx
@@ -140,7 +140,7 @@ class TestAiGeneratorSubmitTask:
 class TestAiGeneratorPollTask:
     """Focus on polling for task completion."""
 
-    def test_poll_returns_video_url_when_done(self) -> None:
+    async def test_poll_returns_video_url_when_done(self) -> None:
         """RED: polling a succeeded task returns the video URL."""
         mock_client = MagicMock(spec=httpx.Client)
         mock_resp = MagicMock(spec=httpx.Response)
@@ -154,10 +154,10 @@ class TestAiGeneratorPollTask:
             _http_client=mock_client,
         )
 
-        url = gen._poll_task("task_123", max_wait_seconds=5, poll_interval_seconds=0.1)
+        url = await gen._poll_task("task_123", max_wait_seconds=5, poll_interval_seconds=0.1)
         assert url == "https://example.com/gen_clip.mp4"
 
-    def test_poll_failed_task_raises(self) -> None:
+    async def test_poll_failed_task_raises(self) -> None:
         """RED: a task that ends in 'failed' status raises VideoSourceError."""
         mock_client = MagicMock(spec=httpx.Client)
         mock_resp = MagicMock(spec=httpx.Response)
@@ -172,7 +172,7 @@ class TestAiGeneratorPollTask:
         )
 
         with pytest.raises(VideoSourceError, match="Kling task failed"):
-            gen._poll_task("task_123", max_wait_seconds=5, poll_interval_seconds=0.1)
+            await gen._poll_task("task_123", max_wait_seconds=5, poll_interval_seconds=0.1)
 
 
 class TestAiGeneratorDownload:
@@ -232,7 +232,7 @@ class TestAiGeneratorGenerate:
         # Use side_effect for different responses
         mock_client.get.side_effect = [poll_resp, download_resp]
 
-        mock_tts = MagicMock(return_value=(tmp_path / "audio.wav", tmp_path / "meta.wav"))
+        mock_tts = AsyncMock(return_value=(tmp_path / "audio.wav", tmp_path / "meta.wav"))
         mock_compose = MagicMock(return_value=(tmp_path / "final.mp4", tmp_path / "final.vtt"))
 
         gen = AiGenerator(
@@ -266,7 +266,7 @@ class TestAiGeneratorGenerate:
 
         # If no AI scenes, no Kling API calls should be made
         mock_client = MagicMock(spec=httpx.Client)
-        mock_tts = MagicMock(return_value=(tmp_path / "audio.wav", tmp_path / "meta.wav"))
+        mock_tts = AsyncMock(return_value=(tmp_path / "audio.wav", tmp_path / "meta.wav"))
         mock_compose = MagicMock(return_value=(tmp_path / "final.mp4", tmp_path / "final.vtt"))
 
         gen = AiGenerator(

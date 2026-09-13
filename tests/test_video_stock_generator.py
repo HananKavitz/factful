@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, PropertyMock
+from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 import httpx
 import pytest
@@ -276,7 +276,7 @@ class TestStockGeneratorGenerate:
         mock_dir = MagicMock(spec=ScriptDirector)
         mock_dir.analyze.return_value = script
 
-        mock_tts = MagicMock(return_value=(tmp_path / "audio.wav", tmp_path / "meta.jsonl"))
+        mock_tts = AsyncMock(return_value=(tmp_path / "audio.wav", tmp_path / "meta.jsonl"))
         mock_compose = MagicMock(return_value=(tmp_path / "final.mp4", tmp_path / "final.vtt"))
 
         gen = StockGenerator(
@@ -378,7 +378,7 @@ class TestStockGeneratorGenerate:
         mock_dir = MagicMock(spec=ScriptDirector)
         mock_dir.analyze.return_value = script
 
-        mock_tts = MagicMock(return_value=(tmp_path / "audio.wav", tmp_path / "meta.wav"))
+        mock_tts = AsyncMock(return_value=(tmp_path / "audio.wav", tmp_path / "meta.wav"))
         mock_compose = MagicMock(return_value=(tmp_path / "final.mp4", tmp_path / "final.vtt"))
 
         gen = StockGenerator(

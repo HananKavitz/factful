@@ -190,7 +190,7 @@ class StockGenerator(VideoGenerator):
         audio_path = workdir / "voiceover.wav"
 
         try:
-            audio_path, metadata_path = self._tts(
+            audio_path, metadata_path = await self._tts(
                 full_text,
                 audio_path,
                 voice=voice,

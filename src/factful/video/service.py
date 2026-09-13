@@ -100,6 +100,8 @@ def build_video_service(
         tts_rate=settings.tts_rate,
         tts_pitch=settings.tts_pitch,
         ai_budget_seconds=settings.hybrid_ai_budget_seconds,
+        model=settings.ai_model,
+        clip_duration_seconds=settings.ai_clip_duration_seconds,
     )
 
     # Registry of available strategies

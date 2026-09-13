@@ -203,11 +203,17 @@ def _render_video_job(
             return
 
     try:
+
+        def _on_progress(stage: str, fraction: float) -> None:
+            record.set_stage(stage)
+            record.set_progress(int(fraction * 100))
+
         video_service.generate_video(
             story=story,
             voice=voice,
             sessions=sessions,
             cancel_check=record.is_cancelled,
+            on_progress=_on_progress,
         )
         record.set_story_id(story_id)
     except Exception as exc:

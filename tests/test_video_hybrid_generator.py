@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -131,7 +131,7 @@ class TestHybridGeneratorGenerate:
         mock_http.get.side_effect = [pexels_resp, stock_dl, kling_poll, ai_dl]
         mock_http.post.return_value = kling_submit
 
-        mock_tts = MagicMock(return_value=(tmp_path / "audio.wav", tmp_path / "meta.wav"))
+        mock_tts = AsyncMock(return_value=(tmp_path / "audio.wav", tmp_path / "meta.wav"))
         mock_compose = MagicMock(return_value=(tmp_path / "final.mp4", tmp_path / "final.vtt"))
 
         gen = HybridGenerator(
@@ -190,7 +190,7 @@ class TestHybridGeneratorGenerate:
         mock_http.post.return_value = submit_resp
         mock_http.get.side_effect = [poll_resp, dl_resp, poll_resp, dl_resp, poll_resp, dl_resp] * 3
 
-        mock_tts = MagicMock(return_value=(tmp_path / "audio.wav", tmp_path / "meta.wav"))
+        mock_tts = AsyncMock(return_value=(tmp_path / "audio.wav", tmp_path / "meta.wav"))
         mock_compose = MagicMock(return_value=(tmp_path / "final.mp4", tmp_path / "final.vtt"))
 
         gen = HybridGenerator(

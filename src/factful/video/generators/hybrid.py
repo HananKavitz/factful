@@ -83,6 +83,8 @@ class HybridGenerator(VideoGenerator):
         tts_rate: str = "-15%",
         tts_pitch: str = "-5Hz",
         ai_budget_seconds: int = 30,
+        model: str = "kling/kling-1.6",
+        clip_duration_seconds: int = 5,
         _http_client: httpx.Client | None = None,
         _tts: Callable[..., Any] | None = None,
         _compose: Callable[..., Any] | None = None,
@@ -98,6 +100,8 @@ class HybridGenerator(VideoGenerator):
         self._tts_rate = tts_rate
         self._tts_pitch = tts_pitch
         self._ai_budget = ai_budget_seconds
+        self._model = model
+        self._clip_duration = clip_duration_seconds
         self._http_client = _http_client or httpx.Client(timeout=30.0)
         self._tts = _tts or generate_speech
         self._compose = _compose or compose_final_video
@@ -146,7 +150,9 @@ class HybridGenerator(VideoGenerator):
 
             if scene.need_ai_generation and remaining_ai_budget >= scene.duration_seconds:
                 # Use AI generation
-                clip_path = self._try_fetch_ai_clip(scene, idx, workdir, remaining_ai_budget)
+                clip_path = await self._try_fetch_ai_clip(
+                    scene, idx, workdir, remaining_ai_budget, cancel_check=cancel_check
+                )
                 if clip_path:
                     clip_paths.append(clip_path)
                     remaining_ai_budget -= scene.duration_seconds
@@ -174,7 +180,7 @@ class HybridGenerator(VideoGenerator):
         audio_path = workdir / "voiceover.wav"
 
         try:
-            audio_path, metadata_path = self._tts(
+            audio_path, metadata_path = await self._tts(
                 full_text,
                 audio_path,
                 voice=voice,
@@ -254,8 +260,14 @@ class HybridGenerator(VideoGenerator):
 
         return dest
 
-    def _try_fetch_ai_clip(
-        self, scene: object, idx: int, workdir: Path, budget_remaining: int
+    async def _try_fetch_ai_clip(
+        self,
+        scene: object,
+        idx: int,
+        workdir: Path,
+        budget_remaining: int,
+        *,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> Path | None:
         """Generate an AI clip for a scene and download it.
 
@@ -267,16 +279,18 @@ class HybridGenerator(VideoGenerator):
         if not prompt:
             return None
 
-        # Lazy-init the internal AI generator
+        # Lazy-init the internal AI generator with full config
         ai_gen = AiGenerator(
             access_key=self._ai_access_key,
             secret_key=self._ai_secret_key,
+            model=self._model,
+            clip_duration_seconds=self._clip_duration,
             _http_client=self._http_client,
         )
 
         try:
             task_id = ai_gen._submit_task(prompt)
-            video_url = ai_gen._poll_task(task_id)
+            video_url = await ai_gen._poll_task(task_id, cancel_check=cancel_check)
         except VideoSourceError:
             logger.warning("Kling generation failed for '%s'", prompt)
             return None

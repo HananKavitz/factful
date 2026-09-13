@@ -12,6 +12,7 @@ This generator:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -176,7 +177,7 @@ class AiGenerator(VideoGenerator):
 
             try:
                 task_id = self._submit_task(prompt)
-                video_url = self._poll_task(task_id)
+                video_url = await self._poll_task(task_id, cancel_check=cancel_check)
             except VideoSourceError:
                 logger.warning("Kling generation failed for prompt '%s'", prompt)
                 continue
@@ -206,7 +207,7 @@ class AiGenerator(VideoGenerator):
         audio_path = workdir / "voiceover.wav"
 
         try:
-            audio_path, metadata_path = self._tts(
+            audio_path, metadata_path = await self._tts(
                 full_text,
                 audio_path,
                 voice=voice,
@@ -257,22 +258,24 @@ class AiGenerator(VideoGenerator):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _auth_headers(self, body: str = "") -> dict[str, str]:
-        """Build Kling API authentication headers."""
+    def _auth_headers(self, *, method: str, path: str, body: str = "") -> dict[str, str]:
+        """Build Kling API authentication headers for any method/path."""
         ts = str(int(time.time()))
         signature = _kling_sign(
-            method="POST",
-            path=_KLING_TEXT2VIDEO_PATH,
+            method=method,
+            path=path,
             body=body,
             access_key=self._access_key,
             secret_key=self._secret_key,
             timestamp=ts,
         )
-        return {
-            "Content-Type": "application/json",
+        headers: dict[str, str] = {
             "Authorization": signature,
             "Timestamp": ts,
         }
+        if method == "POST":
+            headers["Content-Type"] = "application/json"
+        return headers
 
     def _submit_task(self, prompt: str) -> str:
         """Submit a text-to-video generation task to Kling.
@@ -295,7 +298,9 @@ class AiGenerator(VideoGenerator):
         try:
             response = self._http_client.post(
                 f"{_KLING_BASE_URL}{_KLING_TEXT2VIDEO_PATH}",
-                headers=self._auth_headers(body_str),
+                headers=self._auth_headers(
+                    method="POST", path=_KLING_TEXT2VIDEO_PATH, body=body_str
+                ),
                 content=body_str,
             )
         except httpx.RequestError as exc:
@@ -304,7 +309,11 @@ class AiGenerator(VideoGenerator):
         if response.status_code != 200:
             raise VideoSourceError(f"Kling API error (HTTP {response.status_code})")
 
-        data = response.json()
+        try:
+            data = response.json()
+        except Exception as exc:
+            raise VideoSourceError(f"Kling submit returned invalid JSON: {exc}") from exc
+
         if data.get("code") != 0:
             raise VideoSourceError(f"Kling API error: {data.get('message', 'unknown')}")
 
@@ -314,27 +323,38 @@ class AiGenerator(VideoGenerator):
 
         return task_id
 
-    def _poll_task(
+    async def _poll_task(
         self,
         task_id: str,
         max_wait_seconds: float = _DEFAULT_MAX_WAIT,
         poll_interval_seconds: float = _DEFAULT_POLL_INTERVAL,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> str:
         """Poll a Kling task until it completes or fails.
+
+        Args:
+            task_id: The Kling task ID to poll.
+            max_wait_seconds: Maximum total wait time.
+            poll_interval_seconds: Time between polls.
+            cancel_check: Returns True if the job was cancelled.
 
         Returns:
             The URL of the generated video.
 
         Raises:
-            VideoSourceError: on failure or timeout.
+            VideoSourceError: on failure, timeout, or cancellation.
         """
         poll_path = f"{_KLING_TEXT2VIDEO_PATH}/{task_id}"
         deadline = time.monotonic() + max_wait_seconds
 
         while time.monotonic() < deadline:
+            if cancel_check is not None and cancel_check():
+                raise VideoSourceError("Kling polling cancelled")
+
             try:
                 response = self._http_client.get(
                     f"{_KLING_BASE_URL}{poll_path}",
+                    headers=self._auth_headers(method="GET", path=poll_path, body=""),
                 )
             except httpx.RequestError as exc:
                 raise VideoSourceError(f"Kling poll request failed: {exc}") from exc
@@ -342,7 +362,11 @@ class AiGenerator(VideoGenerator):
             if response.status_code != 200:
                 raise VideoSourceError(f"Kling poll error (HTTP {response.status_code})")
 
-            data = response.json()
+            try:
+                data = response.json()
+            except Exception as exc:
+                raise VideoSourceError(f"Kling poll returned invalid JSON: {exc}") from exc
+
             task_status = data.get("data", {}).get("task_status", "")
 
             if task_status == "succeeded":
@@ -356,7 +380,7 @@ class AiGenerator(VideoGenerator):
                 raise VideoSourceError(f"Kling task failed (status: {task_status})")
 
             # Still processing — wait and retry
-            time.sleep(poll_interval_seconds)
+            await asyncio.sleep(poll_interval_seconds)
 
         raise VideoSourceError(f"Kling task {task_id} did not complete within {max_wait_seconds}s")
 

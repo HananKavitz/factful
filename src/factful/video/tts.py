@@ -7,13 +7,12 @@ chunking, just full-text-to-audio in one call.
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 from factful.video.exceptions import TTSGenerationError
 
 
-def generate_speech(
+async def generate_speech(
     text: str,
     output_path: Path,
     voice: str = "en-US-AriaNeural",
@@ -50,22 +49,20 @@ def generate_speech(
     metadata_path = output_path.with_suffix(".jsonl")
 
     try:
-        asyncio.run(
-            edge_tts.Communicate(
-                text=text,
-                voice=voice,
-                rate=rate,
-                pitch=pitch,
-                boundary="WordBoundary",
-            ).save(
-                str(output_path),
-                metadata_fname=str(metadata_path),
-            )
+        await edge_tts.Communicate(
+            text=text,
+            voice=voice,
+            rate=rate,
+            pitch=pitch,
+            boundary="WordBoundary",
+        ).save(
+            str(output_path),
+            metadata_fname=str(metadata_path),
         )
     except Exception as exc:
         raise TTSGenerationError(f"TTS generation failed for voice '{voice}': {exc}") from exc
 
-    if not output_path.exists():
+    if not output_path.exists():  # noqa: ASYNC240
         raise TTSGenerationError(f"TTS output not created at {output_path}")
 
     return output_path, metadata_path
