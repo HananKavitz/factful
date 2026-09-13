@@ -47,3 +47,4 @@ factful_videos/
 *.mp4
 *.mp3
 .test_output_*
+pytest.xml
