@@ -7,6 +7,8 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from factful.video.settings import VideoSettings
+
 
 class Pipeline(BaseModel):
     max_passes: int = Field(default=3, ge=1)
@@ -77,6 +79,7 @@ class Settings(BaseModel):
     writer: Writer = Field(default_factory=Writer)
     llm: LLM = Field(default_factory=LLM)
     web: Web = Field(default_factory=Web)
+    video: VideoSettings = Field(default_factory=VideoSettings)
 
 
 _WEB_ENV_VARS: dict[str, str] = {

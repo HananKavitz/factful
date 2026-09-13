@@ -23,10 +23,11 @@ from factful.api.schemas import (
 )
 from factful.editing import Editor
 from factful.generation import GenerationRequest, extract_title
-from factful.jobstore import JobStore
+from factful.jobstore import JobRecord, JobStore
 from factful.models import Story, User, Video
 from factful.notes import NoteGenerator
 from factful.style.schema import StyleProfile
+from factful.video.service import VideoService
 
 router = APIRouter()
 
@@ -193,8 +194,24 @@ def _render_video_job(
     sessions: sessionmaker[Session],
     request: Request,
 ) -> None:
-    """Stub: will be replaced by VideoService once built."""
-    record.set_error("Video generation is not yet configured. Backend service coming soon.")
+    """Run video generation via the VideoService."""
+    video_service: VideoService = request.app.state.video_service
+    with sessions() as db:
+        story = db.get(Story, story_id)
+        if story is None:
+            record.set_error("Story not found")
+            return
+
+    try:
+        video_service.generate_video(
+            story=story,
+            voice=voice,
+            sessions=sessions,
+            cancel_check=record.is_cancelled,
+        )
+        record.set_story_id(story_id)
+    except Exception as exc:
+        record.set_error(str(exc))
 
 
 @router.get("/{story_id}/video/{video_id}/subtitles")
@@ -296,8 +313,7 @@ def _to_detail(story: Story) -> StoryDetail:
 def _video_info(video: Video) -> VideoInfo:
     file_exists = os.path.exists(video.file_path) if video.file_path else False
     subtitles_url = (
-        f"/api/stories/{video.story_id}/video/{video.id}/subtitles"
-        if video.subtitle_path else None
+        f"/api/stories/{video.story_id}/video/{video.id}/subtitles" if video.subtitle_path else None
     )
     return VideoInfo(
         id=video.id,

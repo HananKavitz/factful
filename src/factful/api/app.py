@@ -22,6 +22,7 @@ from factful.generation import build_generation_runner
 from factful.jobstore import JobStore
 from factful.notes import build_note_generator
 from factful.static import default_frontend_dist, mount_frontend
+from factful.video.service import build_video_service
 
 
 def create_app(
@@ -55,7 +56,14 @@ def create_app(
     app.state.editor = editor
     app.state.style_extractor = build_style_extractor(settings=settings, env=dict(env))
     app.state.note_generator = build_note_generator(env=env)
-    app.state.env = dict(env)
+    llm_api_key = env.get("LLM_API_KEY", "")
+    app.state.video_service = build_video_service(
+        settings=settings.video,
+        env=env,
+        llm_api_key=llm_api_key,
+        llm_base_url=settings.llm.base_url,
+    )
+
     app.include_router(auth.router, prefix="/api/auth")
     app.include_router(stories.router, prefix="/api/stories")
     app.include_router(jobs.router, prefix="/api/jobs")

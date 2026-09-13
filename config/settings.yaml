@@ -40,3 +40,16 @@ web:
   google_client_id: ""
   google_client_secret: ""
 
+video:
+  default_strategy: stock
+  width: 1920
+  height: 1080
+  fps: 30
+  voice: en-US-AriaNeural
+  tts_rate: -15%
+  tts_pitch: -5Hz
+  script_director_model: openai/gpt-4o-mini
+  ai_provider: kling
+  stock_provider: pexels
+  stock_api_key_env: PEXELS_API_KEY
+

@@ -1,0 +1,203 @@
+"""VideoService: orchestrates the full video generation pipeline.
+
+The service wires together the Script Director, a selected generator
+strategy (stock, ai, hybrid), TTS, and the composer, and persists the
+result to a ``Video`` database record.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections.abc import Callable, Mapping
+from pathlib import Path
+
+from sqlalchemy.orm import Session, sessionmaker
+
+from factful.llm.client import OpenRouterClient
+from factful.models import Story, Video
+from factful.video.exceptions import VideoGenerationError
+from factful.video.generators.stock import StockGenerator
+from factful.video.interfaces import (
+    VideoGenerator,
+    VideoOutput,
+    VideoRequest,
+)
+from factful.video.script_director import ScriptDirector
+from factful.video.settings import VideoSettings
+
+logger = logging.getLogger(__name__)
+
+
+def build_video_service(
+    *,
+    settings: VideoSettings,
+    env: Mapping[str, str],
+    llm_api_key: str,
+    llm_base_url: str,
+) -> VideoService:
+    """Factory: create a VideoService from settings and environment.
+
+    Args:
+        settings: ``VideoSettings`` from ``config/settings.yaml``.
+        env: Environment variables (for API keys).
+        llm_api_key: API key for the Script Director's LLM.
+        llm_base_url: Base URL for the LLM API.
+
+    Returns:
+        A configured ``VideoService``.
+    """
+    # Build the Script Director's LLM client
+    llm_client = OpenRouterClient(
+        model=settings.script_director_model,
+        api_key=llm_api_key,
+        base_url=llm_base_url,
+    )
+    script_director = ScriptDirector(client=llm_client)
+
+    # Build the stock generator
+    pexels_api_key = env.get(settings.stock_api_key_env, "")
+    stock_generator = StockGenerator(
+        pexels_api_key=pexels_api_key,
+        script_director=script_director,
+        width=settings.width,
+        height=settings.height,
+        fps=settings.fps,
+        voice=settings.voice,
+        tts_rate=settings.tts_rate,
+        tts_pitch=settings.tts_pitch,
+    )
+
+    # Registry of available strategies
+    generators: dict[str, VideoGenerator] = {
+        "stock": stock_generator,
+    }
+
+    return VideoService(
+        settings=settings,
+        generators=generators,
+        script_director=script_director,
+    )
+
+
+class VideoService:
+    """Orchestrates video generation from article → MP4.
+
+    Wires together the Script Director, a generator strategy (stock, ai,
+    hybrid), and persists the result to the database.
+    """
+
+    def __init__(
+        self,
+        *,
+        settings: VideoSettings,
+        generators: dict[str, VideoGenerator],
+        script_director: ScriptDirector,
+    ) -> None:
+        self._settings = settings
+        self._generators = generators
+        self._director = script_director
+
+    def generate_video(
+        self,
+        story: Story,
+        voice: str,
+        sessions: sessionmaker[Session],
+        *,
+        strategy: str | None = None,
+        on_progress: Callable[[str, float], None] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> VideoOutput:
+        """Run the full video generation pipeline synchronously.
+
+        This method is designed to be called from a background job
+        (``JobStore`` thread pool). It wraps the async generator call
+        with ``asyncio.run()``.
+
+        Args:
+            story: The ``Story`` ORM model to render.
+            voice: TTS voice name.
+            sessions: SQLAlchemy session factory.
+            strategy: Generator strategy name (defaults to ``default_strategy``).
+            on_progress: Optional (stage, fraction) callback.
+            cancel_check: Optional callable returning True if cancelled.
+
+        Returns:
+            The ``VideoOutput`` from the generator.
+
+        Raises:
+            VideoGenerationError: on any pipeline failure.
+        """
+        strategy_name = strategy or self._settings.default_strategy
+        generator = self._generators.get(strategy_name)
+        if generator is None:
+            raise VideoGenerationError(
+                f"Unknown video strategy: {strategy_name!r}. Available: {list(self._generators)}"
+            )
+
+        request = VideoRequest(
+            markdown=story.markdown or "",
+            title=story.title or "",
+            voice=voice,
+        )
+
+        # Determine output path before running (so we can create the Video record)
+        output_dir = Path("videos") / str(story.id)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / "final.mp4"
+
+        # Create the Video DB record
+        with sessions() as db:
+            video_record = Video(
+                story_id=story.id,
+                file_path=str(output_path),
+                status="running",
+                voice=voice,
+            )
+            db.add(video_record)
+            db.commit()
+            db.refresh(video_record)
+            video_id = video_record.id
+
+        try:
+            # Run the async generator
+            output = asyncio.run(
+                generator.generate(
+                    request,
+                    output_path,
+                    cancel_check=cancel_check,
+                    on_progress=on_progress,
+                )
+            )
+        except VideoGenerationError:
+            logger.exception("Video generation failed for story %d", story.id)
+            with sessions() as db:
+                vid = db.get(Video, video_id)
+                if vid is not None:
+                    vid.status = "failed"
+                    vid.error_message = "Video generation failed"
+                    db.commit()
+            raise
+        except Exception:
+            logger.exception("Unexpected video generation error for story %d", story.id)
+            with sessions() as db:
+                vid = db.get(Video, video_id)
+                if vid is not None:
+                    vid.status = "failed"
+                    vid.error_message = "Unexpected error"
+                    db.commit()
+            raise
+
+        # Update the Video record with successful results
+        with sessions() as db:
+            vid = db.get(Video, video_id)
+            if vid is not None:
+                vid.status = "completed"
+                vid.file_path = str(output.video_path)
+                vid.duration_seconds = output.duration_seconds
+                vid.file_size_bytes = output.file_size_bytes
+                vid.resolution = output.resolution
+                vid.subtitle_path = str(output.subtitle_path) if output.subtitle_path else None
+                db.commit()
+
+        return output
