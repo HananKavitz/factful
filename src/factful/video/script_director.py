@@ -97,6 +97,9 @@ class ScriptDirector:
 
         prompt = _SCRIPT_DIRECTOR_PROMPT.format(title=title, markdown=markdown)
 
+        if self._cancel_check is not None and self._cancel_check():
+            raise ScriptError("video generation was cancelled")
+
         try:
             raw = self._client.chat_completion(
                 prompt=prompt,

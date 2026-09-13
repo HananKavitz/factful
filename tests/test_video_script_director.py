@@ -186,9 +186,8 @@ class TestScriptDirectorAnalyze:
 
         assert client.last_schema is ScriptOut
 
-    @pytest.mark.xfail(strict=True, reason="cancel_check not yet checked before LLM call")
     def test_cancel_check_stops_execution(self) -> None:
-        """FUTURE: a cancelled job should not call the LLM."""
+        """RED: a cancelled job should not call the LLM."""
 
         def _cancel() -> bool:
             return True
@@ -196,5 +195,6 @@ class TestScriptDirectorAnalyze:
         client = _FakeClient(_sample_script())
         director = ScriptDirector(client=client, cancel_check=_cancel)
 
-        _ = director.analyze(markdown=SAMPLE_MARKDOWN, title=SAMPLE_TITLE)
+        with pytest.raises(ScriptError, match="cancelled"):
+            director.analyze(markdown=SAMPLE_MARKDOWN, title=SAMPLE_TITLE)
         assert client.last_prompt is None  # LLM should NOT have been called
