@@ -68,7 +68,7 @@ def compose_final_video(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        from moviepy import (  # type: ignore[import-untyped]
+        from moviepy import (  # type: ignore
             AudioFileClip,
             CompositeAudioClip,
             CompositeVideoClip,
