@@ -5,6 +5,7 @@ import {
   useEditStoryMutation,
   useGenerateNoteMutation,
   useGetStoryQuery,
+  useLazyGetStoryQuery,
   useRenderVideoMutation,
   useUpdateStoryMutation,
 } from "../stories/storiesApi";
@@ -14,7 +15,6 @@ import { NoteModal } from "./NoteModal";
 import { VideoTab } from "./VideoTab";
 import type { StoryDetail } from "../../types";
 import { useAppDispatch } from "../../app/hooks";
-import { baseApi } from "../../app/api";
 
 const SAVE_DELAY_MS = 800;
 const VIDEO_POLL_INTERVAL_MS = 2000;
@@ -62,6 +62,7 @@ function EditorForm({ story }: EditorFormProps) {
   const [generateNote, { isLoading: generatingNote }] = useGenerateNoteMutation();
   const [renderVideo, { isLoading: renderingVideo }] = useRenderVideoMutation();
   const [cancelJob, { isLoading: cancelling }] = useCancelJobMutation();
+  const [triggerStoryRefetch] = useLazyGetStoryQuery();
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
 
@@ -113,7 +114,7 @@ function EditorForm({ story }: EditorFormProps) {
     if (videoJob.status === "done") {
       setVideoJobId(null);
       setVideoError(null);
-      dispatch(baseApi.util.invalidateTags([{ type: "Story", id: story.id }]));
+      triggerStoryRefetch(story.id);
     } else if (videoJob.status === "error") {
       setVideoJobId(null);
       setVideoError(videoJob.error ?? "Video rendering failed.");

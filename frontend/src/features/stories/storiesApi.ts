@@ -117,6 +117,7 @@ export const {
   useListStoriesQuery,
   useCreateStoryMutation,
   useGetStoryQuery,
+  useLazyGetStoryQuery,
   useUpdateStoryMutation,
   useEditStoryMutation,
   useDeleteStoryMutation,

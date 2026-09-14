@@ -49,6 +49,7 @@ vi.mock("../stories/storiesApi", () => ({
   useCreateStoryMutation: () => [hooks.createStory, { isLoading: false }],
   useGenerateNoteMutation: () => [hooks.generateNote, { isLoading: hooks.generatingNote }],
   useRenderVideoMutation: () => [hooks.renderVideo, { isLoading: hooks.renderingVideo }],
+  useLazyGetStoryQuery: () => [vi.fn(), { isLoading: false }],
 }));
 
 vi.mock("../jobs/jobsApi", () => ({
