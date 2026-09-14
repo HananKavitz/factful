@@ -204,9 +204,44 @@ def _render_video_job(
 
     try:
 
+        _stage_weights: dict[str, float] = {
+            "script_director": 0.10,
+            "fetching_clips": 0.35,
+            "generating_clips": 0.35,
+            "tts": 0.15,
+            "composing_clips": 0.05,
+            "mixing_audio": 0.02,
+            "concatenating": 0.01,
+            "composing": 0.02,
+            "encoding": 0.25,
+            "finalizing": 0.05,
+        }
+        _clip_synonyms: frozenset[str] = frozenset({
+            "fetching_clips", "generating_clips",
+        })
+        _stage_order: list[str] = [
+            "script_director",
+            "fetching_clips",
+            "tts",
+            "composing_clips",
+            "mixing_audio",
+            "concatenating",
+            "composing",
+            "encoding",
+            "finalizing",
+        ]
+
         def _on_progress(stage: str, fraction: float) -> None:
             record.set_stage(stage)
-            record.set_progress(int(fraction * 100))
+            stage_key = stage if stage not in _clip_synonyms else "fetching_clips"
+            cumulative = 0.0
+            for s in _stage_order:
+                w = _stage_weights.get(s, 0.0)
+                if s == stage_key:
+                    cumulative += w * fraction
+                    break
+                cumulative += w
+            record.set_progress(int(min(cumulative, 1.0) * 100))
 
         video_service.generate_video(
             story=story,

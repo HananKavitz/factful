@@ -98,6 +98,7 @@ def compose_final_video(
 
         if clip_path.suffix.lower() in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
             # Static image → Ken Burns slow zoom
+            logger.info("Composer: ImageClip for %s (Ken Burns)", clip_path.name)
             clip = ImageClip(str(clip_path)).resized((width, height))
             clip = clip.with_duration(5.0)
             # Ken Burns: slow zoom in over the duration
@@ -107,6 +108,7 @@ def compose_final_video(
             )
         else:
             # Video clip
+            logger.info("Composer: VideoFileClip for %s", clip_path.name)
             clip = VideoFileClip(str(clip_path)).resized((width, height))
 
         video_clips.append(clip)
@@ -170,7 +172,7 @@ def compose_final_video(
             audio_codec="aac",
             preset="ultrafast",
             bitrate="4000k",
-            temp_audiofile=str(output_path.parent / f".{output_path.stem}_audio.tmp"),
+            temp_audiofile=str(output_path.parent / f".{output_path.stem}_audio.m4a"),
             remove_temp=True,
             logger=None,
         )

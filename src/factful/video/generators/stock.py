@@ -143,6 +143,11 @@ class StockGenerator(VideoGenerator):
             if on_progress is not None:
                 on_progress("fetching_clips", (idx + 1) / total_scenes)
 
+            logger.info(
+                "Scene %d/%d: need_ai=%s, kw=%s",
+                idx + 1, total_scenes, scene.need_ai_generation, scene.visual_keywords,
+            )
+
             if scene.need_ai_generation:
                 logger.info(
                     "Skipping scene %d (needs AI generation) — no stock clip",
@@ -157,8 +162,9 @@ class StockGenerator(VideoGenerator):
 
             try:
                 urls = self._search_pexels(query, min_results=1)
-            except VideoSourceError:
-                logger.warning("Pexels search failed for query '%s'", query)
+                logger.info("Pexels returned %d URLs for '%s'", len(urls), query)
+            except VideoSourceError as e:
+                logger.warning("Pexels search failed for '%s': %s", query, e)
                 continue
 
             if not urls:
@@ -173,7 +179,9 @@ class StockGenerator(VideoGenerator):
                 continue
 
             clip_paths.append(clip_dest)
+            logger.info("Downloaded clip %s (%d bytes)", clip_dest.name, clip_dest.stat().st_size)
 
+        logger.info("Total clips fetched: %d", len(clip_paths))
         if not clip_paths:
             logger.error("No usable stock clips were fetched")
             raise NoUsableClipsError("Could not fetch any stock video clips from Pexels")
