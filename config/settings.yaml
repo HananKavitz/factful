@@ -50,6 +50,14 @@ video:
   tts_pitch: -5Hz
   script_director_model: openai/gpt-4o-mini
   ai_provider: kling
+  ai_model: kling/kling-1.6
+  ai_api_key_env: KLING_API_KEY
+  ai_max_clips: 15
+  ai_clip_duration_seconds: 5
   stock_provider: pexels
   stock_api_key_env: PEXELS_API_KEY
+  stock_min_resolution: 1080p
+  hybrid_ai_budget_seconds: 30
+  music_enabled: true
+  music_volume: 0.15
 
