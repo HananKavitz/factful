@@ -29,6 +29,7 @@ from factful.video.exceptions import (
     VideoSourceError,
 )
 from factful.video.generators.ai import AiGenerator
+from factful.video.generators.stock import build_pexels_query
 from factful.video.interfaces import (
     VideoGenerator,
     VideoOutput,
@@ -160,7 +161,7 @@ class HybridGenerator(VideoGenerator):
 
             # Use stock footage (fallback for AI scenes over budget too)
             if not scene.need_ai_generation or remaining_ai_budget < scene.duration_seconds:
-                clip_path = self._try_fetch_stock_clip(scene, idx, workdir)
+                clip_path = self._try_fetch_stock_clip(scene, idx, workdir, request.title)
                 if clip_path:
                     clip_paths.append(clip_path)
                 continue
@@ -231,13 +232,16 @@ class HybridGenerator(VideoGenerator):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _try_fetch_stock_clip(self, scene: object, idx: int, workdir: Path) -> Path | None:
+    def _try_fetch_stock_clip(
+        self, scene: object, idx: int, workdir: Path, title: str = ""
+    ) -> Path | None:
         """Search Pexels for a scene and download the best clip.
 
         Returns the clip path, or None on failure.
         """
         keywords = getattr(scene, "visual_keywords", [])
-        query = " ".join(keywords) if keywords else ""
+        narration = getattr(scene, "narration", "")
+        query = build_pexels_query(keywords, narration, title)
         if not query:
             return None
 

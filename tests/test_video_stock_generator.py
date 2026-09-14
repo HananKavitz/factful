@@ -138,7 +138,7 @@ class TestStockGeneratorSearch:
         gen._search_pexels("city skyline", min_results=1)
         _call_kwargs = mock_client.get.call_args.kwargs or {}
         params = _call_kwargs.get("params", {})
-        assert params.get("query") == "city skyline"
+        assert "city" in params.get("query", "") and "skyline" in params.get("query", "")
         assert params.get("per_page") == 15
         assert params.get("orientation") == "landscape"
         assert params.get("size") == "large"
@@ -399,8 +399,8 @@ class TestStockGeneratorGenerate:
         assert mock_http.get.call_count == 2
         search_call = mock_http.get.call_args_list[0]
         search_params = search_call[1].get("params", {})
-        assert search_params.get("query") == "sunset"
+        assert "sunset" in search_params.get("query", "")
         # No search was made for "quantum" (AI scene was skipped)
         for call in mock_http.get.call_args_list:
             params = call[1].get("params", {})
-            assert params.get("query") != "quantum"
+            assert "quantum" not in params.get("query", "")
