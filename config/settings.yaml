@@ -55,7 +55,7 @@ video:
   ai_max_clips: 15
   ai_clip_duration_seconds: 5
   stock_provider: pexels
-  stock_api_key_env: qGIw9DpobtwYZEwWksMAWqXFXWgRZGjFlLxuMkV4zGyGuGHlcjafLjnF
+  stock_api_key_env: PEXELS_API_KEY
   stock_min_resolution: 1080p
   hybrid_ai_budget_seconds: 30
   music_enabled: true
