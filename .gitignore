@@ -44,6 +44,8 @@ output/
 *.sqlite3
 # Video generation
 factful_videos/
+# Video generation output
+videos/
 *.mp4
 *.mp3
 .test_output_*
