@@ -1,10 +1,11 @@
 import type { VideoInfo } from "../../types";
 
 const STAGE_LABELS: Record<string, string> = {
-  preparing: "Preparing assets…",
-  fetching_media: "Downloading images & generating audio…",
-  composing: "Building slides…",
-  encoding: "Encoding video (this takes the longest)…",
+  script_director: "Analyzing article…",
+  fetching_clips: "Searching Pexels for stock clips…",
+  generating_clips: "Generating AI clips…",
+  tts: "Generating voiceover…",
+  composing: "Composing final video…",
   finalizing: "Finalizing…",
 };
 

@@ -87,13 +87,13 @@ describe("VideoTab", () => {
         {...defaultProps}
         isRendering={true}
         videoProgress={42}
-        videoStage="fetching_media"
+        videoStage="fetching_clips"
       />,
     );
 
     expect(screen.getByText("42%")).toBeInTheDocument();
     expect(
-      screen.getByText("Downloading images & generating audio…"),
+      screen.getByText("Searching Pexels for stock clips…"),
     ).toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toBeInTheDocument();
   });
