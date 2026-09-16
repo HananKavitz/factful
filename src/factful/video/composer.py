@@ -74,6 +74,14 @@ def _probe_duration(path: Path, ffmpeg_bin: str) -> float:
     return 8.0
 
 
+def _probe_audio_duration(audio_path: Path) -> float:
+    """Return the duration (seconds) of an audio file via FFmpeg probe.
+
+    Falls back to ``_probe_duration`` which works on audio files too.
+    """
+    return _probe_duration(audio_path, _get_ffmpeg())
+
+
 def _probe_format(path: Path, ffmpeg_bin: str) -> dict[str, str | int] | None:
     """Return stream metadata via ``ffmpeg -i`` stderr parsing.
 
@@ -359,12 +367,18 @@ def _encode_concat_filter(
     bitrate: str = "4000k",
     music_path: Path | None = None,
     music_volume: float = 0.15,
+    target_video_duration: float | None = None,
     cancel_check: Callable[[], bool] | None = None,
     on_progress: Callable[[str, float], None] | None = None,
 ) -> float:
     """Re-encode via FFmpeg concat filter (native, no Python frame loop).
 
-    Returns total estimated duration (seconds) for progress calculation.
+    When *target_video_duration* is longer than the sum of clip durations,
+    the video stream is padded with a freeze-frame (``tpad``) so the final
+    output lasts long enough for the full voiceover.  In that case
+    ``-shortest`` is **not** used — the audio governs the output length.
+
+    Returns the total (or target) video duration used for progress.
     """
     ffmpeg = _get_ffmpeg()
 
@@ -378,6 +392,7 @@ def _encode_concat_filter(
     n_clips = len(clip_paths)
     audio_idx = n_clips
     has_music = music_path is not None and music_path.exists()
+    video_label = "[vid]"
 
     filters: list[str] = []
     for i in range(n_clips):
@@ -385,6 +400,20 @@ def _encode_concat_filter(
 
     concat_in = "".join(f"[v{i}]" for i in range(n_clips))
     filters.append(f"{concat_in}concat=n={n_clips}:v=1:a=0[vid]")
+
+    # Pad the video with a freeze-frame if clips end before the target
+    pad_duration: float | None = None
+    if target_video_duration is not None and target_video_duration > total_duration + 0.5:
+        pad_duration = target_video_duration
+        gap = pad_duration - total_duration
+        filters.append(f"[vid]tpad=stop_mode=clone:stop_duration={gap}[vid_padded]")
+        video_label = "[vid_padded]"
+        logger.info(
+            "Adding %.1fs freeze-frame pad to reach target %.1fs (clips: %.1fs)",
+            gap,
+            pad_duration,
+            total_duration,
+        )
 
     if has_music:
         filters.append(f"[{audio_idx}:a]adelay=0|0[a_tts]")
@@ -405,15 +434,20 @@ def _encode_concat_filter(
     if has_music:
         cmd.extend(["-i", str(music_path)])
     cmd.extend(["-filter_complex", filter_complex])
-    cmd.extend(["-map", "[vid]", "-map", "[outa]"])
+    cmd.extend(["-map", video_label, "-map", "[outa]"])
     cmd.extend(["-c:v", "libx264", "-preset", "ultrafast", "-b:v", bitrate])
-    cmd.extend(["-c:a", "aac", "-shortest"])
+    cmd.extend(["-c:a", "aac"])
+    if pad_duration is None:
+        cmd.append("-shortest")
     cmd.extend(["-progress", "pipe:1", "-y", str(output_path)])
 
+    progress_dur: float = pad_duration if pad_duration is not None else total_duration
+
     logger.info(
-        "Concat-filter encode: %d clips, %.1fs total, %s audio inputs.",
+        "Concat-filter encode: %d clips, %.1fs total%s, %s audio inputs.",
         n_clips,
         total_duration,
+        f" → {pad_duration:.1f}s (padded)" if pad_duration is not None else "",
         "TTS+music" if has_music else "TTS",
     )
 
@@ -425,13 +459,13 @@ def _encode_concat_filter(
 
     _run_ffmpeg(
         cmd,
-        total_duration,
+        progress_dur,
         "FFmpeg concat-filter encode",
         cancel_check=cancel_check,
         on_progress=on_progress,
     )
 
-    return total_duration
+    return progress_dur
 
 
 def _encode_with_ffmpeg(
@@ -458,7 +492,31 @@ def _encode_with_ffmpeg(
     """
     ffmpeg = _get_ffmpeg()
 
-    if _clips_compatible_for_copy(clip_paths, ffmpeg, width, height):
+    # Probe audio and clip durations to decide on padding
+    audio_dur = _probe_audio_duration(audio_path)
+    clip_dur = sum(_probe_duration(p, ffmpeg) for p in clip_paths)
+    needs_pad = audio_dur > clip_dur + 0.5
+
+    if needs_pad:
+        logger.info(
+            "Audio (%.1fs) longer than clips (%.1fs) — padding video with freeze frame.",
+            audio_dur,
+            clip_dur,
+        )
+        _encode_concat_filter(
+            clip_paths,
+            audio_path,
+            output_path,
+            width=width,
+            height=height,
+            bitrate=bitrate,
+            music_path=music_path,
+            music_volume=music_volume,
+            target_video_duration=audio_dur,
+            cancel_check=cancel_check,
+            on_progress=on_progress,
+        )
+    elif _clips_compatible_for_copy(clip_paths, ffmpeg, width, height):
         _encode_stream_copy(
             clip_paths,
             audio_path,
@@ -676,6 +734,12 @@ def compose_final_video(
         final_video = concatenate_videoclips(video_clips, method="compose")
     except Exception as exc:
         raise CompositionError(f"failed to concatenate clips: {exc}") from exc
+
+    # If the voiceover is longer than the video, extend the video so
+    # the full narration plays (freeze on last frame)
+    audio_dur = voiceover.duration
+    if audio_dur > final_video.duration:
+        final_video = final_video.with_duration(audio_dur)
 
     final_video = final_video.with_audio(final_audio)
 
