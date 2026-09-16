@@ -68,6 +68,7 @@ def compose_final_video(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
+        import proglog
         from moviepy import (  # type: ignore
             AudioFileClip,
             CompositeAudioClip,
@@ -78,6 +79,30 @@ def compose_final_video(
         )
     except ImportError as exc:
         raise CompositionError("moviepy is not installed") from exc
+
+    class _EncodingProgressLogger(proglog.ProgressBarLogger):  # type: ignore[misc]
+        """Reports moviepy frame-iteration progress to our on_progress callback.
+
+        The bar named ``frame_index`` is updated on every frame; we extract
+        ``index / total`` and forward the fraction so the user sees encoding
+        advance in real time instead of a frozen 70%.
+        """
+
+        def __init__(
+            self,
+            on_progress: Callable[[str, float], None] | None,
+            min_time_interval: float = 0.5,
+        ) -> None:
+            super().__init__(min_time_interval=min_time_interval)
+            self._on_progress = on_progress
+
+        def callback(self, **kw: object) -> None:
+            bar = self.bars.get("frame_index")
+            if bar is not None and self._on_progress is not None:
+                total = bar.get("total")
+                index = bar.get("index")
+                if total and index is not None and total > 0:
+                    self._on_progress("encoding", min(index / total, 1.0))
 
     if cancel_check and cancel_check():
         return output_path, None
@@ -174,7 +199,7 @@ def compose_final_video(
             bitrate="4000k",
             temp_audiofile=str(output_path.parent / f".{output_path.stem}_audio.m4a"),
             remove_temp=True,
-            logger=None,
+            logger=_EncodingProgressLogger(on_progress) if on_progress is not None else None,
         )
     except Exception as exc:
         raise CompositionError(f"video encoding failed: {exc}") from exc

@@ -78,5 +78,5 @@ show_missing = true
 package = true
 
 [[tool.mypy.overrides]]
-module = ["numpy", "numpy.*"]
+module = ["numpy", "numpy.*", "proglog", "proglog.*"]
 ignore_missing_imports = true
