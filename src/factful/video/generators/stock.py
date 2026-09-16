@@ -130,13 +130,15 @@ _STOPWORDS: frozenset[str] = frozenset(
 def build_pexels_query(
     keywords: list[str],
     narration: str,
+    title: str = "",
     used_narration_words: set[str] | None = None,
 ) -> str:
-    """Build a Pexels search query from visual keywords and narration.
+    """Build a Pexels search query from visual keywords, narration, and article title.
 
     Args:
         keywords: Scene visual keywords from the Script Director.
         narration: Scene narration text — meaningful nouns are extracted.
+        title: Article title (prepended for topical relevance).
         used_narration_words: Set of narration words already consumed by
             earlier scenes; will be updated in-place to avoid overlap.
 
@@ -144,6 +146,10 @@ def build_pexels_query(
         A space-joined query string, or empty string if nothing usable.
     """
     parts: list[str] = [k for k in keywords if k]
+
+    # Prepend title if not already redundant
+    if title and title.lower() not in " ".join(parts).lower():
+        parts.insert(0, title)
 
     # Add meaningful nouns from narration that haven't been used yet (up to 8)
     if narration:
@@ -272,6 +278,7 @@ class StockGenerator(VideoGenerator):
             query = build_pexels_query(
                 scene.visual_keywords,
                 scene.narration,
+                request.title,
                 used_narration_words,
             )
             if not query:

@@ -169,6 +169,7 @@ class HybridGenerator(VideoGenerator):
                     workdir,
                     used_urls,
                     used_narration_words,
+                    request.title,
                 )
                 if clip_path:
                     clip_paths.append(clip_path)
@@ -247,6 +248,7 @@ class HybridGenerator(VideoGenerator):
         workdir: Path,
         used_urls: set[str],
         used_narration_words: set[str],
+        title: str = "",
     ) -> Path | None:
         """Search Pexels for a scene and download the best clip.
 
@@ -257,12 +259,13 @@ class HybridGenerator(VideoGenerator):
             used_urls: Set of already-downloaded URLs (deduplicated in-place).
             used_narration_words: Set of narration words already used in
                 earlier scenes (deduplicated in-place).
+            title: Article title (prepended for topical relevance).
 
         Returns the clip path, or None on failure.
         """
         keywords = getattr(scene, "visual_keywords", [])
         narration = getattr(scene, "narration", "")
-        query = build_pexels_query(keywords, narration, used_narration_words)
+        query = build_pexels_query(keywords, narration, title, used_narration_words)
         if not query:
             return None
 
