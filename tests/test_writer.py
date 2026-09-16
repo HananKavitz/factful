@@ -379,7 +379,7 @@ def test_apply_user_edit_forwards_sampling_params() -> None:
         temperature=0.6,
         top_p=0.7,
     )
-    assert client.kwargs[0] == {"temperature": 0.6, "top_p": 0.7}
+    assert client.kwargs[0] == {"temperature": 0.6, "top_p": 0.7, "max_tokens": 32000}
 
 
 def test_revise_article_normalizes_collapsed_markdown() -> None:

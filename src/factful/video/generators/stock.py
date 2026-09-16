@@ -49,17 +49,82 @@ def _pixel_count(video: dict[str, Any]) -> int:
     return (video.get("width") or 0) * (video.get("height") or 0)
 
 
-_STOPWORDS: frozenset[str] = frozenset({
-    "the", "a", "an", "is", "are", "was", "were", "be", "been",
-    "being", "have", "has", "had", "do", "does", "did", "will",
-    "would", "could", "should", "may", "might", "shall", "can",
-    "this", "that", "these", "those", "it", "its", "they", "them",
-    "their", "we", "our", "you", "your", "he", "she", "him", "her",
-    "his", "and", "or", "but", "not", "no", "nor", "so", "if",
-    "then", "than", "too", "very", "just", "with", "without",
-    "from", "into", "over", "also", "about", "more", "some", "any",
-    "each", "every", "all", "both", "few", "most", "other",
-})
+_STOPWORDS: frozenset[str] = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "shall",
+        "can",
+        "this",
+        "that",
+        "these",
+        "those",
+        "it",
+        "its",
+        "they",
+        "them",
+        "their",
+        "we",
+        "our",
+        "you",
+        "your",
+        "he",
+        "she",
+        "him",
+        "her",
+        "his",
+        "and",
+        "or",
+        "but",
+        "not",
+        "no",
+        "nor",
+        "so",
+        "if",
+        "then",
+        "than",
+        "too",
+        "very",
+        "just",
+        "with",
+        "without",
+        "from",
+        "into",
+        "over",
+        "also",
+        "about",
+        "more",
+        "some",
+        "any",
+        "each",
+        "every",
+        "all",
+        "both",
+        "few",
+        "most",
+        "other",
+    }
+)
 
 
 def build_pexels_query(keywords: list[str], narration: str, title: str) -> str:
@@ -69,10 +134,7 @@ def build_pexels_query(keywords: list[str], narration: str, title: str) -> str:
     # Add meaningful nouns from narration (up to 8)
     if narration:
         words = narration.strip().split()
-        extra = [
-            w for w in words
-            if w.lower() not in _STOPWORDS and len(w) > 3
-        ]
+        extra = [w for w in words if w.lower() not in _STOPWORDS and len(w) > 3]
         parts.extend(extra[:8])
 
     # Prepend title if not already redundant
@@ -178,7 +240,10 @@ class StockGenerator(VideoGenerator):
 
             logger.info(
                 "Scene %d/%d: need_ai=%s, kw=%s",
-                idx + 1, total_scenes, scene.need_ai_generation, scene.visual_keywords,
+                idx + 1,
+                total_scenes,
+                scene.need_ai_generation,
+                scene.visual_keywords,
             )
 
             if scene.need_ai_generation:

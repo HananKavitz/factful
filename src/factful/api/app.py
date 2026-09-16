@@ -38,7 +38,7 @@ def create_app(
     engine = build_engine(web.database_url, env)
     init_db(engine)
     sessions = session_factory(engine)
-    job_store = JobStore()
+    job_store = JobStore(max_workers=2)
     generation_runner = build_generation_runner(sessions=sessions, env=env)
     editor = build_editor(env=env)
 

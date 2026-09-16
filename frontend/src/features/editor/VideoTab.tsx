@@ -16,22 +16,25 @@ function stageDisplayName(stage: string | null): string {
 
 function ProgressBar({ value, stage }: { value: number | null; stage: string | null }) {
   const pct = value ?? 0;
+  const isIndeterminate = value === null;
   return (
     <div className="w-full">
       <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
         <span>{stageDisplayName(stage)}</span>
-        <span>{pct}%</span>
+        {!isIndeterminate && <span>{pct}%</span>}
       </div>
       <div
         className="h-2 w-full overflow-hidden rounded-full bg-slate-200"
         role="progressbar"
-        aria-valuenow={pct}
+        aria-valuenow={isIndeterminate ? undefined : pct}
         aria-valuemin={0}
         aria-valuemax={100}
       >
         <div
-          className="h-full rounded-full bg-cyan-600 transition-all duration-500 ease-out"
-          style={{ width: `${pct}%` }}
+          className={`h-full rounded-full bg-cyan-600 transition-all duration-500 ease-out ${
+            isIndeterminate ? "w-1/2 animate-pulse" : ""
+          }`}
+          style={isIndeterminate ? undefined : { width: `${pct}%` }}
         />
       </div>
     </div>
@@ -122,7 +125,7 @@ export function VideoTab({
               </button>
             </div>
           </div>
-          {isRendering && videoProgress != null && (
+          {isRendering && (
             <div className="mb-2">
               <ProgressBar
                 value={videoProgress}

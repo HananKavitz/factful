@@ -104,7 +104,6 @@ class JobStore:
             return self._jobs.get(job_id)
 
     def submit(self, record: JobRecord, fn: Callable[[JobRecord], None]) -> None:
-        record.set_status("running")
         self._executor.submit(_guard, record, fn)
 
     def shutdown(self, wait: bool = False) -> None:
@@ -113,6 +112,7 @@ class JobStore:
 
 def _guard(record: JobRecord, fn: Callable[[JobRecord], None]) -> None:
     try:
+        record.set_status("running")
         fn(record)
     except Exception as exc:
         record.set_error(str(exc))

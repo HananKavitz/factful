@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from typing import Annotated
 
@@ -28,6 +29,8 @@ from factful.models import Story, User, Video
 from factful.notes import NoteGenerator
 from factful.style.schema import StyleProfile
 from factful.video.service import VideoService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -127,9 +130,23 @@ def edit_story(
         story = _owned_story(db, story_id, user.id)
         if story is None:
             raise HTTPException(status_code=404, detail="story not found")
-        story.markdown = editor(
-            story.markdown, body.prompt, style, temperature=temperature, top_p=top_p
-        )
+        original = story.markdown
+        edited = editor(original, body.prompt, style, temperature=temperature, top_p=top_p)
+        if len(edited) < len(original) * 0.3:
+            logger.warning(
+                "edit_story: edited=%d vs original=%d chars — rejecting (below 30%% threshold)",
+                len(edited),
+                len(original),
+            )
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "The edit returned a drastically shorter article. "
+                    "Your edit instruction may have been misinterpreted by the model. "
+                    "Please try a different instruction."
+                ),
+            )
+        story.markdown = edited
         story.title = extract_title(story.markdown, story.title)
         db.commit()
         db.refresh(story)
@@ -203,7 +220,6 @@ def _render_video_job(
             return
 
     try:
-
         _stage_weights: dict[str, float] = {
             "script_director": 0.10,
             "fetching_clips": 0.35,
@@ -216,9 +232,12 @@ def _render_video_job(
             "encoding": 0.25,
             "finalizing": 0.05,
         }
-        _clip_synonyms: frozenset[str] = frozenset({
-            "fetching_clips", "generating_clips",
-        })
+        _clip_synonyms: frozenset[str] = frozenset(
+            {
+                "fetching_clips",
+                "generating_clips",
+            }
+        )
         _stage_order: list[str] = [
             "script_director",
             "fetching_clips",

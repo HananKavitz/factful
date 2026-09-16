@@ -127,7 +127,7 @@ class TestVideoEndpoint:
 
         body = response.json()
         assert "job_id" in body
-        assert body["status"] == "running"
+        assert body["status"] == "queued"
 
     def test_render_video_job_completes_successfully(self) -> None:
         """RED: the background job should complete with status 'done'."""

@@ -44,6 +44,7 @@ class ChatClient(Protocol):
         schema: type[BaseModel],
         temperature: float | None = None,
         top_p: float | None = None,
+        max_tokens: int | None = None,
     ) -> BaseModel: ...
 
 
@@ -88,6 +89,7 @@ class OpenRouterClient:
         schema: type[BaseModel],
         temperature: float | None = None,
         top_p: float | None = None,
+        max_tokens: int | None = None,
     ) -> BaseModel:
         client = self._client or httpx.Client(timeout=self._timeout)
         attempts = self._max_retries + 1
@@ -102,6 +104,8 @@ class OpenRouterClient:
                     payload["temperature"] = temperature
                 if top_p is not None:
                     payload["top_p"] = top_p
+                if max_tokens is not None:
+                    payload["max_tokens"] = max_tokens
                 response = client.post(
                     self._base_url,
                     headers={"Authorization": f"Bearer {self._api_key}"},

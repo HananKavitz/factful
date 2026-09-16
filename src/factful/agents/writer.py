@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import date
 
@@ -10,6 +11,8 @@ from factful.config import Settings
 from factful.llm.client import ChatClient
 from factful.schemas import CritiqueReport, Draft, FactVerdict, SourceBundle, UserSourcePage
 from factful.style.schema import StyleProfile
+
+logger = logging.getLogger(__name__)
 
 _CLAIM_TAG = re.compile(r"\[\[(?P<claim_id>\w+)\]\]")
 _SENTENCE_RE = re.compile(r"(?:[^.!?]|\d\.\d)+[.!?]+(?=\s|\Z)")
@@ -336,7 +339,11 @@ def revise_article(
 
 _EDIT_INSTRUCTIONS = """
 You are editing an existing Substack draft to apply the author's instruction.
-Apply the requested change faithfully while preserving everything else.
+Apply the requested change faithfully while preserving EVERYTHING ELSE.
+
+CRITICAL — Return the ENTIRE edited article, not just the changed portion.
+The full article must be present in the "markdown" field of the output JSON.
+If you omit any part of the draft, the edit is considered a failure.
 
 Rules:
 - Change ONLY what the instruction asks for. Do not rewrite unrelated passages,
@@ -345,9 +352,19 @@ Rules:
 - The draft contains no source tags; do not invent statistics or citations.
 - If the instruction conflicts with the draft's existing content, follow the
   instruction and keep the surrounding prose coherent.
+- Preserve the current article length. If the instruction does not explicitly ask
+  to shorten, keep every paragraph intact.
 
 Return the edited article as Markdown that fits the supplied output schema.
 """
+
+
+def _edit_length_guidance(length: int) -> str:
+    return (
+        f"The current draft is approximately {length} words. "
+        f"Preserve this length unless the edit instruction explicitly asks "
+        f"to change it. Do not trim or expand the article."
+    )
 
 
 def build_user_edit_prompt(
@@ -359,14 +376,14 @@ def build_user_edit_prompt(
     today: date | None = None,
 ) -> str:
     settings = settings if settings is not None else Settings()
-    writer = settings.writer
     today = today or date.today()
+    rough_word_count = max(1, len(markdown.split()))
     return (
         f"Today is {today.isoformat()}.\n\n"
         f"Style profile:\n{json.dumps(profile.model_dump(), indent=2)}\n\n"
         f"Current draft:\n{markdown}\n\n"
         f"Author's instruction:\n{instruction}\n\n"
-        f"{_length_guidance(writer.min_words, writer.target_words, writer.max_words)}\n\n"
+        f"{_edit_length_guidance(rough_word_count)}\n\n"
         f"{_paragraph_guidance(profile.metrics.avg_paragraph_sentences)}\n\n"
         f"{_EDIT_INSTRUCTIONS}\n\n"
         f"Output schema (return JSON matching this shape):\n"
@@ -389,10 +406,20 @@ def apply_user_edit(
     prompt = build_user_edit_prompt(markdown, instruction, profile, settings=settings, today=today)
     temperature, top_p = _sampling_params(settings, temperature, top_p)
     result = client.chat_completion(
-        prompt=prompt, schema=Draft, temperature=temperature, top_p=top_p
+        prompt=prompt,
+        schema=Draft,
+        temperature=temperature,
+        top_p=top_p,
+        max_tokens=32000,
     )
     if not isinstance(result, Draft):
         raise TypeError(f"expected Draft, got {type(result).__name__}")
+    logger.info(
+        "apply_user_edit: input %d chars -> output %d chars (title=%r)",
+        len(markdown),
+        len(result.markdown),
+        result.title,
+    )
     return result.model_copy(
         update={"markdown": normalize_paragraphs(result.markdown, profile=profile)}
     )
