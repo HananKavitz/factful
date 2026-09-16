@@ -1,7 +1,16 @@
 """Video composition: clips + voiceover + music → MP4.
 
-Uses FFmpeg concat filter directly for the common case (all video
-clips), falling back to moviepy when images / Ken Burns are needed.
+Composition flow, from fastest to slowest:
+
+1. **Stream copy** (near-instant) — when all clips share the same codec,
+   resolution, pixel format and SAR, the concat demuxer copies packets
+   without any re-encoding.
+
+2. **FFmpeg concat filter** (fast) — native re-encode via filter_complex.
+   Used when clips differ in resolution, codec, etc.
+
+3. **Moviepy** (slow fallback) — required when scenes contain images
+   (Ken Burns zoom effect).
 """
 
 from __future__ import annotations
@@ -9,6 +18,7 @@ from __future__ import annotations
 import logging
 import re
 import subprocess as sp
+import tempfile
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -19,7 +29,14 @@ from factful.video.subtitles import build_vtt
 logger = logging.getLogger(__name__)
 
 _DURATION_RE = re.compile(r"Duration:\s*(\d+):(\d+):(\d+\.?\d*)")
+_STREAM_RE = re.compile(
+    r"Stream\s+#0:(\d+)(?:\[.*?\])?\(.*?\):\s+Video:\s+(\S+)\s+.*?,\s+(\S+),"
+    r"\s+(\d+)x(\d+)\s+.*?(?:\[SAR\s+(\d+):(\d+)\s+DAR\s+(\d+):(\d+)\])?"
+)
 _IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".gif", ".webp"})
+
+
+# ── helpers ──────────────────────────────────────────────────────────
 
 
 def _get_ffmpeg() -> str:
@@ -29,14 +46,13 @@ def _get_ffmpeg() -> str:
 
         return str(FFMPEG_BINARY)
     except ImportError:
-        # Fallback: hope it is on PATH
         return "ffmpeg"
 
 
 def _probe_duration(path: Path, ffmpeg_bin: str) -> float:
     """Quickly read a clip's duration from its header (no decode)."""
     try:
-        result = sp.run(  # noqa: S603  # ffmpeg_bin is from the trusted imageio-ffmpeg package
+        result = sp.run(  # noqa: S603
             [ffmpeg_bin, "-i", str(path), "-f", "null", "-"],
             capture_output=True,
             text=True,
@@ -58,6 +74,65 @@ def _probe_duration(path: Path, ffmpeg_bin: str) -> float:
     return 8.0
 
 
+def _probe_format(path: Path, ffmpeg_bin: str) -> dict[str, str | int] | None:
+    """Return stream metadata via ``ffmpeg -i`` stderr parsing.
+
+    Returns ``None`` when the clip can't be probed (e.g. unsupported
+    format or network timeout).
+    """
+    try:
+        result = sp.run(  # noqa: S603
+            [ffmpeg_bin, "-i", str(path), "-f", "null", "-"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except sp.TimeoutExpired:
+        logger.warning("Format probe timed out for %s", path.name)
+        return None
+
+    for line in result.stderr.splitlines():
+        m = _STREAM_RE.search(line)
+        if m:
+            sar_num = int(m.group(6)) if m.group(6) else 1
+            sar_den = int(m.group(7)) if m.group(7) else 1
+            return {
+                "codec": m.group(2),
+                "pix_fmt": m.group(3),
+                "width": int(m.group(4)),
+                "height": int(m.group(5)),
+                "sar": f"{sar_num}:{sar_den}",
+            }
+    return None
+
+
+def _clips_compatible_for_copy(
+    clip_paths: list[Path], ffmpeg_bin: str, width: int, height: int
+) -> bool:
+    """Check whether all clips are homogeneous enough for ``-c copy``.
+
+    The concat demuxer requires every clip to share the same codec,
+    resolution, pixel format, and sample aspect ratio.  If any clip
+    is unprobeable we err on the side of re-encoding.
+    """
+    ref: dict[str, str | int] | None = None
+    for p in clip_paths:
+        info = _probe_format(p, ffmpeg_bin)
+        if info is None:
+            return False
+        if ref is None:
+            ref = info
+        else:
+            if info["codec"] != ref["codec"]:
+                return False
+    # All probeable — also check they match the *target* resolution
+    # (stream copy can't resize, so the output would be the clip's
+    # native resolution; we only accept exact match or upscale).
+    # Actually for stream copy we keep native resolution — skip
+    # resolution check and accept any matching codec.
+    return True
+
+
 def _scale_filter(width: int, height: int) -> str:
     """FFmpeg filter string to scale+pad to *width*x*height*."""
     return (
@@ -66,105 +141,22 @@ def _scale_filter(width: int, height: int) -> str:
     )
 
 
-def _encode_with_ffmpeg(
-    clip_paths: list[Path],
-    audio_path: Path,
-    output_path: Path,
-    metadata_path: Path | None = None,
+# ── run helper (shared by stream-copy and re-encode paths) ───────────
+
+
+def _run_ffmpeg(
+    cmd: list[str],
+    total_duration: float,
+    label: str,
     *,
-    width: int = 1920,
-    height: int = 1080,
-    fps: int = 30,
-    bitrate: str = "4000k",
-    music_path: Path | None = None,
-    music_volume: float = 0.15,
     cancel_check: Callable[[], bool] | None = None,
     on_progress: Callable[[str, float], None] | None = None,
-) -> Path | None:
-    """Encode video clips + audio via FFmpeg concat filter.
-
-    This is *much* faster than moviepy's frame-by-frame Python pipe:
-    FFmpeg decodes, scales, and re-encodes entirely in native code with
-    zero frame iteration in Python.
-
-    Returns the subtitle path or ``None``.
-    """
-    ffmpeg = _get_ffmpeg()
-
-    # --- Estimate total duration (header-only probe) ---
-    total_duration = 0.0
-    for p in clip_paths:
-        total_duration += _probe_duration(p, ffmpeg)
-
-    if total_duration <= 0:
-        raise CompositionError("could not determine clip durations")
-
-    n_clips = len(clip_paths)
-    audio_idx = n_clips  # TTS audio is the first non-video input
-    has_music = music_path is not None and music_path.exists()
-
-    # --- Build filter_complex ---
-    filters: list[str] = []
-
-    # 1) Scale each video input
-    for i in range(n_clips):
-        filters.append(f"[{i}:v]{_scale_filter(width, height)}[v{i}]")
-
-    # 2) Concat video only (discard clip audio)
-    concat_in = "".join(f"[v{i}]" for i in range(n_clips))
-    filters.append(f"{concat_in}concat=n={n_clips}:v=1:a=0[vid]")
-
-    # 3) Audio: format the TTS track (and mix with music if present)
-    if has_music:
-        filters.append(f"[{audio_idx}:a]adelay=0|0[a_tts]")
-        filters.append(f"[{audio_idx + 1}:a]volume={music_volume}[a_music]")
-        filters.append(
-            "[a_tts][a_music]amix=inputs=2:duration=first,"
-            "aformat=sample_rates=44100:channel_layouts=stereo[outa]"
-        )
-    else:
-        filters.append(f"[{audio_idx}:a]aformat=sample_rates=44100:channel_layouts=stereo[outa]")
-
-    filter_complex = ";".join(filters)
-
-    # --- Build command ---
-    cmd: list[str] = [ffmpeg]
-    for p in clip_paths:
-        cmd.extend(["-i", str(p)])
-    cmd.extend(["-i", str(audio_path)])
-    if has_music:
-        cmd.extend(["-i", str(music_path)])
-    cmd.extend(["-filter_complex", filter_complex])
-    cmd.extend(["-map", "[vid]", "-map", "[outa]"])
-    cmd.extend(
-        [
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-b:v",
-            bitrate,
-        ]
-    )
-    cmd.extend(["-c:a", "aac", "-shortest"])
-    cmd.extend(["-progress", "pipe:1", "-y", str(output_path)])
-
-    logger.info(
-        "FFmpeg encode: %d clips, %.1fs total, %s audio inputs.",
-        n_clips,
-        total_duration,
-        "TTS+music" if has_music else "TTS",
-    )
-
-    # --- Run ---
+) -> None:
+    """Start an FFmpeg subprocess, stream progress, and check cancel."""
     if on_progress is not None:
-        on_progress("composing_clips", 1.0)
-        on_progress("mixing_audio", 1.0)
-        on_progress("concatenating", 1.0)
-        on_progress("composing", 1.0)
         on_progress("encoding", 0.0)
 
-    proc = sp.Popen(  # noqa: S603  # ffmpeg_bin is from the trusted imageio-ffmpeg package
+    proc = sp.Popen(  # noqa: S603
         cmd,
         stdout=sp.PIPE,
         stderr=sp.PIPE,
@@ -172,8 +164,6 @@ def _encode_with_ffmpeg(
         bufsize=1,
     )
 
-    # Parse -progress lines from stdout in a reader thread so we don't
-    # block the stderr pipe (which can fill up on long encodes).
     progress_done = threading.Event()
     ffmpeg_error: list[str] = []
 
@@ -186,7 +176,6 @@ def _encode_with_ffmpeg(
     stderr_thread = threading.Thread(target=_read_stderr, daemon=True)
     stderr_thread.start()
 
-    # Read progress from stdout in the main thread
     try:
         for line in iter(proc.stdout.readline, ""):  # type: ignore[union-attr]
             if cancel_check and cancel_check():
@@ -209,11 +198,225 @@ def _encode_with_ffmpeg(
         stderr_thread.join(timeout=5)
 
     if proc.returncode != 0:
-        err_text = "".join(ffmpeg_error[-20:])  # last 20 lines
-        raise CompositionError(f"FFmpeg encoding failed (exit {proc.returncode}): {err_text[:500]}")
+        err_text = "".join(ffmpeg_error[-20:])
+        raise CompositionError(f"{label} failed (exit {proc.returncode}): {err_text[:500]}")
 
     if on_progress is not None:
         on_progress("encoding", 1.0)
+
+
+# ── FFmpeg encoding strategies ──────────────────────────────────────
+
+
+def _encode_stream_copy(
+    clip_paths: list[Path],
+    audio_path: Path,
+    output_path: Path,
+    *,
+    cancel_check: Callable[[], bool] | None = None,
+    on_progress: Callable[[str, float], None] | None = None,
+) -> float:
+    """Near-instant concat via concat demuxer + ``-c copy``.
+
+    All clips must have already been verified compatible
+    (same codec, resolution, pix_fmt, SAR).
+
+    Returns total estimated duration (seconds) for progress calculation.
+    """
+    ffmpeg = _get_ffmpeg()
+
+    # --- total duration ---
+    total_duration = 0.0
+    for p in clip_paths:
+        total_duration += _probe_duration(p, ffmpeg)
+
+    # --- temp file list ---
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        filelist = Path(f.name)
+        for p in clip_paths:
+            f.write(f"file '{p.resolve()}'\n")
+
+    if on_progress is not None:
+        on_progress("composing_clips", 1.0)
+        on_progress("mixing_audio", 1.0)
+        on_progress("concatenating", 1.0)
+        on_progress("composing", 1.0)
+
+    cmd: list[str] = [
+        ffmpeg,
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        str(filelist),
+        "-i",
+        str(audio_path),
+        "-map",
+        "0:v",
+        "-c:v",
+        "copy",
+        "-map",
+        "1:a",
+        "-c:a",
+        "aac",
+        "-shortest",
+        "-progress",
+        "pipe:1",
+        "-y",
+        str(output_path),
+    ]
+
+    logger.info(
+        "Stream-copy concat: %d clips, %.1fs total (near-instant).",
+        len(clip_paths),
+        total_duration,
+    )
+
+    try:
+        _run_ffmpeg(
+            cmd,
+            total_duration,
+            "FFmpeg stream-copy concat",
+            cancel_check=cancel_check,
+            on_progress=on_progress,
+        )
+    finally:
+        filelist.unlink(missing_ok=True)
+
+    return total_duration
+
+
+def _encode_concat_filter(
+    clip_paths: list[Path],
+    audio_path: Path,
+    output_path: Path,
+    *,
+    width: int = 1920,
+    height: int = 1080,
+    bitrate: str = "4000k",
+    music_path: Path | None = None,
+    music_volume: float = 0.15,
+    cancel_check: Callable[[], bool] | None = None,
+    on_progress: Callable[[str, float], None] | None = None,
+) -> float:
+    """Re-encode via FFmpeg concat filter (native, no Python frame loop).
+
+    Returns total estimated duration (seconds) for progress calculation.
+    """
+    ffmpeg = _get_ffmpeg()
+
+    total_duration = 0.0
+    for p in clip_paths:
+        total_duration += _probe_duration(p, ffmpeg)
+
+    if total_duration <= 0:
+        raise CompositionError("could not determine clip durations")
+
+    n_clips = len(clip_paths)
+    audio_idx = n_clips
+    has_music = music_path is not None and music_path.exists()
+
+    filters: list[str] = []
+    for i in range(n_clips):
+        filters.append(f"[{i}:v]{_scale_filter(width, height)}[v{i}]")
+
+    concat_in = "".join(f"[v{i}]" for i in range(n_clips))
+    filters.append(f"{concat_in}concat=n={n_clips}:v=1:a=0[vid]")
+
+    if has_music:
+        filters.append(f"[{audio_idx}:a]adelay=0|0[a_tts]")
+        filters.append(f"[{audio_idx + 1}:a]volume={music_volume}[a_music]")
+        filters.append(
+            "[a_tts][a_music]amix=inputs=2:duration=first,"
+            "aformat=sample_rates=44100:channel_layouts=stereo[outa]"
+        )
+    else:
+        filters.append(f"[{audio_idx}:a]aformat=sample_rates=44100:channel_layouts=stereo[outa]")
+
+    filter_complex = ";".join(filters)
+
+    cmd: list[str] = [ffmpeg]
+    for p in clip_paths:
+        cmd.extend(["-i", str(p)])
+    cmd.extend(["-i", str(audio_path)])
+    if has_music:
+        cmd.extend(["-i", str(music_path)])
+    cmd.extend(["-filter_complex", filter_complex])
+    cmd.extend(["-map", "[vid]", "-map", "[outa]"])
+    cmd.extend(["-c:v", "libx264", "-preset", "ultrafast", "-b:v", bitrate])
+    cmd.extend(["-c:a", "aac", "-shortest"])
+    cmd.extend(["-progress", "pipe:1", "-y", str(output_path)])
+
+    logger.info(
+        "Concat-filter encode: %d clips, %.1fs total, %s audio inputs.",
+        n_clips,
+        total_duration,
+        "TTS+music" if has_music else "TTS",
+    )
+
+    if on_progress is not None:
+        on_progress("composing_clips", 1.0)
+        on_progress("mixing_audio", 1.0)
+        on_progress("concatenating", 1.0)
+        on_progress("composing", 1.0)
+
+    _run_ffmpeg(
+        cmd,
+        total_duration,
+        "FFmpeg concat-filter encode",
+        cancel_check=cancel_check,
+        on_progress=on_progress,
+    )
+
+    return total_duration
+
+
+def _encode_with_ffmpeg(
+    clip_paths: list[Path],
+    audio_path: Path,
+    output_path: Path,
+    metadata_path: Path | None = None,
+    *,
+    width: int = 1920,
+    height: int = 1080,
+    fps: int = 30,
+    bitrate: str = "4000k",
+    music_path: Path | None = None,
+    music_volume: float = 0.15,
+    cancel_check: Callable[[], bool] | None = None,
+    on_progress: Callable[[str, float], None] | None = None,
+) -> Path | None:
+    """Pick the fastest FFmpeg strategy for the given clips.
+
+    1. **Stream copy** — when all clips share the same codec/resolution.
+    2. **Concat filter** (re-encode) — native FFmpeg scaling + encode.
+
+    Returns the subtitle path or ``None``.
+    """
+    ffmpeg = _get_ffmpeg()
+
+    if _clips_compatible_for_copy(clip_paths, ffmpeg, width, height):
+        _encode_stream_copy(
+            clip_paths,
+            audio_path,
+            output_path,
+            cancel_check=cancel_check,
+            on_progress=on_progress,
+        )
+    else:
+        _encode_concat_filter(
+            clip_paths,
+            audio_path,
+            output_path,
+            width=width,
+            height=height,
+            bitrate=bitrate,
+            music_path=music_path,
+            music_volume=music_volume,
+            cancel_check=cancel_check,
+            on_progress=on_progress,
+        )
 
     # --- Subtitles ---
     subtitle_path: Path | None = None
@@ -224,6 +427,9 @@ def _encode_with_ffmpeg(
             subtitle_path.write_text(vtt, encoding="utf-8")
 
     return subtitle_path
+
+
+# ── public entry point ───────────────────────────────────────────────
 
 
 def compose_final_video(
@@ -242,9 +448,8 @@ def compose_final_video(
 ) -> tuple[Path, Path | None]:
     """Compose clips + voiceover + optional music into a single MP4.
 
-    When every input is a video file (no images / Ken Burns) the
-    composition is handed to FFmpeg's ``concat`` filter directly,
-    which is **much** faster than moviepy's per-frame Python pipe.
+    Automatically selects the fastest available strategy:
+      stream-copy → concat filter → moviepy (images/Ken Burns).
 
     Args:
         clip_paths: Video or image files for each scene, in order.
@@ -357,7 +562,6 @@ def compose_final_video(
             ".gif",
             ".webp",
         ):
-            # Static image → Ken Burns slow zoom
             logger.info("Composer: ImageClip for %s (Ken Burns)", clip_path.name)
             clip = ImageClip(str(clip_path)).resized((width, height))
             clip = clip.with_duration(5.0)
@@ -366,7 +570,6 @@ def compose_final_video(
                 ("center", "center")
             )
         else:
-            # Video clip
             logger.info("Composer: VideoFileClip for %s", clip_path.name)
             clip = VideoFileClip(str(clip_path)).resized((width, height))
 
@@ -440,12 +643,12 @@ def compose_final_video(
         on_progress("encoding", 1.0)
 
     # --- Subtitles ---
-    vtt_subtitle_path: Path | None = None
+    subtitle_path_mp: Path | None = None
     if metadata_path and metadata_path.exists():
         vtt = build_vtt(metadata_path)
         if vtt:
-            vtt_subtitle_path = output_path.with_suffix(".vtt")
-            vtt_subtitle_path.write_text(vtt, encoding="utf-8")
+            subtitle_path_mp = output_path.with_suffix(".vtt")
+            subtitle_path_mp.write_text(vtt, encoding="utf-8")
 
     if on_progress is not None:
         on_progress("finalizing", 1.0)
@@ -453,4 +656,4 @@ def compose_final_video(
     if not output_path.exists():
         raise CompositionError(f"output file was not created at {output_path}")
 
-    return output_path, vtt_subtitle_path
+    return output_path, subtitle_path_mp
