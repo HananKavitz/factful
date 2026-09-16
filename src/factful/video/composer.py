@@ -133,6 +133,68 @@ def _clips_compatible_for_copy(
     return True
 
 
+def trim_or_loop_clip(
+    clip_path: Path,
+    target_duration: float,
+    output_path: Path,
+    *,
+    ffmpeg_bin: str | None = None,
+) -> Path:
+    """Trim or loop a video clip to exactly *target_duration* seconds.
+
+    If the clip is longer than *target_duration*, the end is trimmed off.
+    If shorter, the clip is seamlessly looped (via ``-stream_loop -1``) to
+    reach the target.  This ensures every scene's visual matches its
+    narration segment so that ``-shortest`` in the final composition
+    doesn't truncate the voiceover.
+
+    Args:
+        clip_path: Path to the source video file.
+        target_duration: Desired duration in seconds (>= 0.5).
+        output_path: Where to write the trimmed/looped file.
+        ffmpeg_bin: Override the FFmpeg binary path.
+
+    Returns:
+        *output_path* (the caller can ignore the return value).
+
+    Raises:
+        CompositionError: if FFmpeg fails.
+    """
+    ffmpeg = ffmpeg_bin or _get_ffmpeg()
+    actual = _probe_duration(clip_path, ffmpeg) or 0.0
+    if actual <= 0:
+        logger.warning("%s: cannot probe duration, leaving unclipped", clip_path.name)
+        return clip_path
+
+    if abs(actual - target_duration) < 0.5:
+        # already close enough — re-use the source
+        output_path.write_bytes(clip_path.read_bytes())
+        return output_path
+
+    # For loops we use -stream_loop -1 (loop infinitely) and cap with -t
+    cmd = [
+        ffmpeg,
+        "-stream_loop",
+        "-1" if actual < target_duration else "0",
+        "-i",
+        str(clip_path),
+        "-t",
+        str(target_duration),
+        "-c",
+        "copy" if actual >= target_duration else "aac",
+        "-y",
+        str(output_path),
+    ]
+    try:
+        sp.run(cmd, capture_output=True, text=True, timeout=int(target_duration) + 60, check=True)  # noqa: S603
+    except sp.CalledProcessError as exc:
+        raise CompositionError(
+            f"Failed to trim/loop clip {clip_path.name}: {exc.stderr[:500]}"
+        ) from exc
+
+    return output_path
+
+
 def _scale_filter(width: int, height: int) -> str:
     """FFmpeg filter string to scale+pad to *width*x*height*."""
     return (

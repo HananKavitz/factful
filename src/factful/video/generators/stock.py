@@ -20,7 +20,7 @@ from typing import Any
 
 import httpx
 
-from factful.video.composer import compose_final_video
+from factful.video.composer import compose_final_video, trim_or_loop_clip
 from factful.video.exceptions import (
     CompositionError,
     NoUsableClipsError,
@@ -127,19 +127,33 @@ _STOPWORDS: frozenset[str] = frozenset(
 )
 
 
-def build_pexels_query(keywords: list[str], narration: str, title: str) -> str:
-    """Build a Pexels search query from visual keywords, narration, and article title."""
+def build_pexels_query(
+    keywords: list[str],
+    narration: str,
+    used_narration_words: set[str] | None = None,
+) -> str:
+    """Build a Pexels search query from visual keywords and narration.
+
+    Args:
+        keywords: Scene visual keywords from the Script Director.
+        narration: Scene narration text — meaningful nouns are extracted.
+        used_narration_words: Set of narration words already consumed by
+            earlier scenes; will be updated in-place to avoid overlap.
+
+    Returns:
+        A space-joined query string, or empty string if nothing usable.
+    """
     parts: list[str] = [k for k in keywords if k]
 
-    # Add meaningful nouns from narration (up to 8)
+    # Add meaningful nouns from narration that haven't been used yet (up to 8)
     if narration:
         words = narration.strip().split()
         extra = [w for w in words if w.lower() not in _STOPWORDS and len(w) > 3]
+        if used_narration_words is not None:
+            fresh = [w for w in extra if w.lower() not in used_narration_words]
+            used_narration_words.update(w.lower() for w in fresh)
+            extra = fresh
         parts.extend(extra[:8])
-
-    # Prepend title if not already redundant
-    if title and title.lower() not in " ".join(parts).lower():
-        parts.insert(0, title)
 
     return " ".join(parts) if parts else ""
 
@@ -149,7 +163,7 @@ class StockGenerator(VideoGenerator):
 
     Args:
         pexels_api_key: Pexels API key.
-        script_director: ``ScriptDirector`` instance for markdown→script.
+        script_director: ``ScriptDirector`` instance for markdown-to-script.
         width: Output video width (default 1920).
         height: Output video height (default 1080).
         fps: Output frame rate (default 30).
@@ -227,6 +241,8 @@ class StockGenerator(VideoGenerator):
             on_progress("fetching_clips", 0.0)
 
         clip_paths: list[Path] = []
+        used_urls: set[str] = set()
+        used_narration_words: set[str] = set()
         workdir = output_path.parent / f".stock_{uuid.uuid4().hex[:8]}"
         workdir.mkdir(parents=True, exist_ok=True)
 
@@ -253,14 +269,18 @@ class StockGenerator(VideoGenerator):
                 )
                 continue
 
-            query = build_pexels_query(scene.visual_keywords, scene.narration, request.title)
+            query = build_pexels_query(
+                scene.visual_keywords,
+                scene.narration,
+                used_narration_words,
+            )
             if not query:
                 logger.info("Skipping scene %d — no search terms", idx)
                 continue
 
             try:
-                urls = self._search_pexels(query, min_results=1)
-                logger.info("Pexels returned %d URLs for '%s'", len(urls), query)
+                urls = self._search_pexels(query, page=idx + 1, min_results=1)
+                logger.info("Pexels returned %d URLs for '%s' (page %d)", len(urls), query, idx + 1)
             except VideoSourceError as e:
                 logger.warning("Pexels search failed for '%s': %s", query, e)
                 continue
@@ -269,15 +289,36 @@ class StockGenerator(VideoGenerator):
                 logger.info("No Pexels results for query '%s'", query)
                 continue
 
+            # Skip already-used URLs (deduplicate); pick the first fresh one
+            fresh_url = next((u for u in urls if u not in used_urls), None)
+            if fresh_url is None:
+                logger.info("All Pexels results for '%s' already used — skipping", query)
+                continue
+
+            used_urls.add(fresh_url)
+
             clip_dest = workdir / f"scene_{idx:04d}.mp4"
             try:
-                self._download_clip(urls[0], clip_dest)
+                self._download_clip(fresh_url, clip_dest)
             except VideoSourceError:
                 logger.warning("Failed to download clip for scene %d", idx)
                 continue
 
+            # Trim or loop the clip to match the scene's intended duration
+            trimmed = workdir / f"scene_{idx:04d}_trimmed.mp4"
+            try:
+                trim_or_loop_clip(clip_dest, scene.duration_seconds, trimmed)
+                clip_dest = trimmed
+            except CompositionError:
+                logger.warning("Failed to trim/loop clip for scene %d, using raw clip", idx)
+
             clip_paths.append(clip_dest)
-            logger.info("Downloaded clip %s (%d bytes)", clip_dest.name, clip_dest.stat().st_size)
+            logger.info(
+                "Downloaded clip %s (%d bytes, target=%.1fs)",
+                clip_dest.name,
+                clip_dest.stat().st_size,
+                scene.duration_seconds,
+            )
 
         logger.info("Total clips fetched: %d", len(clip_paths))
         if not clip_paths:
@@ -348,14 +389,20 @@ class StockGenerator(VideoGenerator):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _search_pexels(self, query: str, min_results: int = 1) -> list[str]:
+    def _search_pexels(self, query: str, page: int = 1, min_results: int = 1) -> list[str]:
         """Search Pexels for stock video clips.
+
+        Args:
+            query: Search query string.
+            page: Pexels result page (used to rotate results per scene).
+            min_results: Minimum number of results required.
 
         Returns a list of download URLs sorted by quality (best first).
         """
         params: dict[str, Any] = {
             "query": query,
             "per_page": _DEFAULT_PER_PAGE,
+            "page": page,
             "orientation": _DEFAULT_ORIENTATION,
             "size": _DEFAULT_SIZE,
         }

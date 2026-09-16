@@ -21,7 +21,7 @@ from typing import Any
 
 import httpx
 
-from factful.video.composer import compose_final_video
+from factful.video.composer import compose_final_video, trim_or_loop_clip
 from factful.video.exceptions import (
     CompositionError,
     NoUsableClipsError,
@@ -136,6 +136,8 @@ class HybridGenerator(VideoGenerator):
             on_progress("fetching_clips", 0.0)
 
         clip_paths: list[Path] = []
+        used_urls: set[str] = set()
+        used_narration_words: set[str] = set()
         workdir = output_path.parent / f".hybrid_{uuid.uuid4().hex[:8]}"
         workdir.mkdir(parents=True, exist_ok=True)
 
@@ -161,7 +163,13 @@ class HybridGenerator(VideoGenerator):
 
             # Use stock footage (fallback for AI scenes over budget too)
             if not scene.need_ai_generation or remaining_ai_budget < scene.duration_seconds:
-                clip_path = self._try_fetch_stock_clip(scene, idx, workdir, request.title)
+                clip_path = self._try_fetch_stock_clip(
+                    scene,
+                    idx,
+                    workdir,
+                    used_urls,
+                    used_narration_words,
+                )
                 if clip_path:
                     clip_paths.append(clip_path)
                 continue
@@ -233,20 +241,33 @@ class HybridGenerator(VideoGenerator):
     # ------------------------------------------------------------------
 
     def _try_fetch_stock_clip(
-        self, scene: object, idx: int, workdir: Path, title: str = ""
+        self,
+        scene: object,
+        idx: int,
+        workdir: Path,
+        used_urls: set[str],
+        used_narration_words: set[str],
     ) -> Path | None:
         """Search Pexels for a scene and download the best clip.
+
+        Args:
+            scene: A scene object with visual_keywords and narration.
+            idx: Scene index (used for pagination).
+            workdir: Directory for downloaded clips.
+            used_urls: Set of already-downloaded URLs (deduplicated in-place).
+            used_narration_words: Set of narration words already used in
+                earlier scenes (deduplicated in-place).
 
         Returns the clip path, or None on failure.
         """
         keywords = getattr(scene, "visual_keywords", [])
         narration = getattr(scene, "narration", "")
-        query = build_pexels_query(keywords, narration, title)
+        query = build_pexels_query(keywords, narration, used_narration_words)
         if not query:
             return None
 
         try:
-            urls = self._search_pexels(query)
+            urls = self._search_pexels(query, page=idx + 1)
         except VideoSourceError:
             logger.warning("Pexels search failed for '%s'", query)
             return None
@@ -255,12 +276,29 @@ class HybridGenerator(VideoGenerator):
             logger.info("No Pexels results for '%s'", query)
             return None
 
+        # Skip already-used URLs; pick the first fresh one
+        fresh_url = next((u for u in urls if u not in used_urls), None)
+        if fresh_url is None:
+            logger.info("All Pexels results for '%s' already used — skipping", query)
+            return None
+
+        used_urls.add(fresh_url)
+
         dest = workdir / f"stock_{idx:04d}.mp4"
         try:
-            self._download_clip(urls[0], dest)
+            self._download_clip(fresh_url, dest)
         except VideoSourceError:
             logger.warning("Failed to download stock clip for scene %d", idx)
             return None
+
+        # Trim or loop the stock clip to match the scene's intended duration
+        trimmed = workdir / f"stock_{idx:04d}_trimmed.mp4"
+        scene_dur = getattr(scene, "duration_seconds", 8)
+        try:
+            trim_or_loop_clip(dest, scene_dur, trimmed)
+            dest = trimmed
+        except CompositionError:
+            logger.warning("Failed to trim/loop stock clip for scene %d, using raw clip", idx)
 
         return dest
 
@@ -306,16 +344,30 @@ class HybridGenerator(VideoGenerator):
             logger.warning("Failed to download AI clip for scene %d", idx)
             return None
 
+        # Trim or loop the AI clip to match the scene's intended duration
+        trimmed = workdir / f"ai_{idx:04d}_trimmed.mp4"
+        scene_dur = getattr(scene, "duration_seconds", 8)
+        try:
+            trim_or_loop_clip(dest, scene_dur, trimmed)
+            dest = trimmed
+        except CompositionError:
+            logger.warning("Failed to trim/loop AI clip for scene %d, using raw clip", idx)
+
         return dest
 
-    def _search_pexels(self, query: str) -> list[str]:
+    def _search_pexels(self, query: str, page: int = 1) -> list[str]:
         """Search Pexels for stock video clips matching the query.
+
+        Args:
+            query: Search query string.
+            page: Pexels result page (used to rotate results per scene).
 
         Returns a list of download URLs sorted by quality (best first).
         """
         params: dict[str, Any] = {
             "query": query,
             "per_page": 5,
+            "page": page,
             "orientation": "landscape",
             "size": "large",
         }

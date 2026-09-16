@@ -25,7 +25,7 @@ from typing import Any
 
 import httpx
 
-from factful.video.composer import compose_final_video
+from factful.video.composer import compose_final_video, trim_or_loop_clip
 from factful.video.exceptions import (
     CompositionError,
     TTSGenerationError,
@@ -175,8 +175,10 @@ class AiGenerator(VideoGenerator):
             if not prompt:
                 prompt = scene.narration[:200]
 
+            # Request the clip with a duration that respects Kling's max
+            kling_duration = min(scene.duration_seconds, self._clip_duration)
             try:
-                task_id = self._submit_task(prompt)
+                task_id = self._submit_task(prompt, duration=kling_duration)
                 video_url = await self._poll_task(task_id, cancel_check=cancel_check)
             except VideoSourceError:
                 logger.warning("Kling generation failed for prompt '%s'", prompt)
@@ -188,6 +190,14 @@ class AiGenerator(VideoGenerator):
             except VideoSourceError:
                 logger.warning("Failed to download Kling clip for scene %d", idx)
                 continue
+
+            # Trim or loop the clip to match the scene's intended duration
+            trimmed = workdir / f"scene_{idx:04d}_trimmed.mp4"
+            try:
+                trim_or_loop_clip(clip_dest, scene.duration_seconds, trimmed)
+                clip_dest = trimmed
+            except CompositionError:
+                logger.warning("Failed to trim/loop AI clip for scene %d, using raw clip", idx)
 
             clip_paths.append(clip_dest)
 
@@ -277,8 +287,13 @@ class AiGenerator(VideoGenerator):
             headers["Content-Type"] = "application/json"
         return headers
 
-    def _submit_task(self, prompt: str) -> str:
+    def _submit_task(self, prompt: str, duration: int | None = None) -> str:
         """Submit a text-to-video generation task to Kling.
+
+        Args:
+            prompt: The text prompt for video generation.
+            duration: Desired clip duration in seconds. Falls back to
+                ``self._clip_duration`` when not provided.
 
         Returns:
             The task ID for polling.
@@ -289,7 +304,7 @@ class AiGenerator(VideoGenerator):
         body_dict: dict[str, Any] = {
             "model_name": self._model,
             "prompt": prompt,
-            "duration": self._clip_duration,
+            "duration": duration if duration is not None else self._clip_duration,
             "cfg": 0.5,
             "mode": "pro",
         }

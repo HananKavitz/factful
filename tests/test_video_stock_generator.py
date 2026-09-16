@@ -140,6 +140,7 @@ class TestStockGeneratorSearch:
         params = _call_kwargs.get("params", {})
         assert "city" in params.get("query", "") and "skyline" in params.get("query", "")
         assert params.get("per_page") == 15
+        assert params.get("page") == 1
         assert params.get("orientation") == "landscape"
         assert params.get("size") == "large"
 
