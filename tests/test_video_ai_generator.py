@@ -241,6 +241,7 @@ class TestAiGeneratorGenerate:
             _http_client=mock_client,
             _tts=mock_tts,
             _compose=mock_compose,
+            _trim=MagicMock(),
         )
 
         output = await gen.generate(

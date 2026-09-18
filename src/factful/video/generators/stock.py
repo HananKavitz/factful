@@ -179,6 +179,7 @@ class StockGenerator(VideoGenerator):
         _http_client: Optional injected ``httpx.Client`` (for tests).
         _tts: Optional injected TTS callable (for tests).
         _compose: Optional injected compose callable (for tests).
+        _trim: Optional injected clip trim/loop callable (for tests).
     """
 
     def __init__(
@@ -195,6 +196,7 @@ class StockGenerator(VideoGenerator):
         _http_client: httpx.Client | None = None,
         _tts: Callable[..., Any] | None = None,
         _compose: Callable[..., Any] | None = None,
+        _trim: Callable[..., Any] | None = None,
     ) -> None:
         self._api_key = pexels_api_key
         self._director = script_director
@@ -207,6 +209,7 @@ class StockGenerator(VideoGenerator):
         self._http_client = _http_client or httpx.Client(timeout=30.0)
         self._tts = _tts or generate_speech
         self._compose = _compose or compose_final_video
+        self._trim = _trim or trim_or_loop_clip
 
     # ------------------------------------------------------------------
     # VideoGenerator protocol
@@ -314,8 +317,7 @@ class StockGenerator(VideoGenerator):
             # Trim or loop the clip to match the scene's intended duration
             trimmed = workdir / f"scene_{idx:04d}_trimmed.mp4"
             try:
-                trim_or_loop_clip(clip_dest, scene.duration_seconds, trimmed)
-                clip_dest = trimmed
+                clip_dest = self._trim(clip_dest, scene.duration_seconds, trimmed)
             except CompositionError:
                 logger.warning("Failed to trim/loop clip for scene %d, using raw clip", idx)
 

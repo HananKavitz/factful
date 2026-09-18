@@ -141,6 +141,7 @@ class TestHybridGeneratorGenerate:
             _http_client=mock_http,
             _tts=mock_tts,
             _compose=mock_compose,
+            _trim=MagicMock(),
         )
 
         output = await gen.generate(
@@ -200,6 +201,7 @@ class TestHybridGeneratorGenerate:
             _http_client=mock_http,
             _tts=mock_tts,
             _compose=mock_compose,
+            _trim=MagicMock(),
         )
 
         output = await gen.generate(
