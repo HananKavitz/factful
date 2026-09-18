@@ -42,7 +42,7 @@ _IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".gif", ".webp"})
 def _get_ffmpeg() -> str:
     """Return the FFmpeg binary path used by moviepy / imageio-ffmpeg."""
     try:
-        from moviepy.config import FFMPEG_BINARY  # type: ignore[import-untyped]
+        from moviepy.config import FFMPEG_BINARY  # type: ignore
 
         return str(FFMPEG_BINARY)
     except ImportError:
