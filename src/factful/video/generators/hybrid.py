@@ -21,11 +21,14 @@ from typing import Any
 
 import httpx
 
-from factful.video.composer import compose_final_video, trim_or_loop_clip
+from factful.video.composer import (
+    compose_final_video,
+    make_placeholder_clip,
+    trim_or_loop_clip,
+)
 from factful.video.exceptions import (
     CompositionError,
     NoUsableClipsError,
-    TTSGenerationError,
     VideoSourceError,
 )
 from factful.video.generators.ai import AiGenerator
@@ -36,8 +39,8 @@ from factful.video.interfaces import (
     VideoRequest,
     VideoScript,
 )
+from factful.video.narration import synthesize_narration
 from factful.video.script_director import ScriptDirector
-from factful.video.tts import generate_speech
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +69,8 @@ class HybridGenerator(VideoGenerator):
         tts_pitch: TTS pitch string.
         ai_budget_seconds: Maximum total seconds of AI-generated video.
         _http_client: Optional injected ``httpx.Client`` (for tests).
-        _tts: Optional injected TTS callable (for tests).
+        _narration: Optional injected narration synthesizer (for tests).
+        _placeholder: Optional injected placeholder maker (for tests).
         _compose: Optional injected compose callable (for tests).
         _trim: Optional injected clip trim/loop callable (for tests).
     """
@@ -88,7 +92,8 @@ class HybridGenerator(VideoGenerator):
         model: str = "kling/kling-1.6",
         clip_duration_seconds: int = 5,
         _http_client: httpx.Client | None = None,
-        _tts: Callable[..., Any] | None = None,
+        _narration: Callable[..., Any] | None = None,
+        _placeholder: Callable[..., Any] | None = None,
         _compose: Callable[..., Any] | None = None,
         _trim: Callable[..., Any] | None = None,
     ) -> None:
@@ -106,7 +111,8 @@ class HybridGenerator(VideoGenerator):
         self._model = model
         self._clip_duration = clip_duration_seconds
         self._http_client = _http_client or httpx.Client(timeout=30.0)
-        self._tts = _tts or generate_speech
+        self._narration = _narration or synthesize_narration
+        self._placeholder = _placeholder or make_placeholder_clip
         self._compose = _compose or compose_final_video
         self._trim = _trim or trim_or_loop_clip
 
@@ -126,6 +132,13 @@ class HybridGenerator(VideoGenerator):
         on_progress: Callable[[str, float], None] | None = None,
         script: VideoScript | None = None,
     ) -> VideoOutput:
+        """Run the full hybrid pipeline.
+
+        1. Script Director (if needed)
+        2. Per-scene narration (measured durations)
+        3. AI clip (if flagged & within budget) else stock, then placeholder
+        4. Compose final video
+        """
         if on_progress is not None:
             on_progress("script_director", 0.0)
 
@@ -135,16 +148,33 @@ class HybridGenerator(VideoGenerator):
         if not script or not script.scenes:
             raise NoUsableClipsError("Script Director returned no scenes")
 
+        workdir = output_path.parent / f".hybrid_{uuid.uuid4().hex[:8]}"
+        workdir.mkdir(parents=True, exist_ok=True)
+        voice = request.voice or self._voice
+
+        # Step 2: narration — measured durations drive clip lengths
+        if on_progress is not None:
+            on_progress("tts", 0.0)
+        narration = await self._narration(
+            script.scenes,
+            workdir,
+            voice=voice,
+            rate=self._tts_rate,
+            pitch=self._tts_pitch,
+            on_progress=(lambda f: on_progress("tts", f)) if on_progress is not None else None,
+        )
+
+        if cancel_check and cancel_check():
+            return VideoOutput(video_path=output_path)
+
+        # Step 3: one visual per scene, trimmed to the narrated duration
         if on_progress is not None:
             on_progress("fetching_clips", 0.0)
 
         clip_paths: list[Path] = []
         used_urls: set[str] = set()
         used_narration_words: set[str] = set()
-        workdir = output_path.parent / f".hybrid_{uuid.uuid4().hex[:8]}"
-        workdir.mkdir(parents=True, exist_ok=True)
-
-        remaining_ai_budget = self._ai_budget
+        remaining_ai_budget: float = float(self._ai_budget)
         total_scenes = len(script.scenes)
 
         for idx, scene in enumerate(script.scenes):
@@ -154,69 +184,52 @@ class HybridGenerator(VideoGenerator):
             if on_progress is not None:
                 on_progress("fetching_clips", (idx + 1) / total_scenes)
 
-            if scene.need_ai_generation and remaining_ai_budget >= scene.duration_seconds:
-                # Use AI generation
-                clip_path = await self._try_fetch_ai_clip(
-                    scene, idx, workdir, remaining_ai_budget, cancel_check=cancel_check
-                )
-                if clip_path:
-                    clip_paths.append(clip_path)
-                    remaining_ai_budget -= scene.duration_seconds
-                continue
+            duration = narration.durations[idx]
+            clip_path: Path | None = None
 
-            # Use stock footage (fallback for AI scenes over budget too)
-            if not scene.need_ai_generation or remaining_ai_budget < scene.duration_seconds:
+            if scene.need_ai_generation and remaining_ai_budget >= duration:
+                clip_path = await self._try_fetch_ai_clip(
+                    scene, idx, workdir, duration, cancel_check=cancel_check
+                )
+                if clip_path is not None:
+                    remaining_ai_budget -= duration
+
+            if clip_path is None:
                 clip_path = self._try_fetch_stock_clip(
                     scene,
                     idx,
                     workdir,
+                    duration,
                     used_urls,
                     used_narration_words,
                     request.title,
                 )
-                if clip_path:
-                    clip_paths.append(clip_path)
-                continue
 
-        if not clip_paths:
-            raise NoUsableClipsError("Could not fetch any video clips from stock or AI sources")
+            if clip_path is None:
+                logger.info("No visual for scene %d — using placeholder", idx)
+                clip_path = self._placeholder(
+                    duration,
+                    workdir / f"scene_{idx:04d}_placeholder.mp4",
+                    width=self._width,
+                    height=self._height,
+                    fps=self._fps,
+                )
 
-        if cancel_check and cancel_check():
-            return VideoOutput(video_path=output_path)
-
-        # TTS
-        if on_progress is not None:
-            on_progress("tts", 0.0)
-
-        voice = request.voice or self._voice
-        full_text = "\n".join(s.narration for s in script.scenes if s.narration)
-        audio_path = workdir / "voiceover.wav"
-
-        try:
-            audio_path, metadata_path = await self._tts(
-                full_text,
-                audio_path,
-                voice=voice,
-                rate=self._tts_rate,
-                pitch=self._tts_pitch,
-            )
-        except TTSGenerationError:
-            logger.error("TTS generation failed")
-            raise
+            clip_paths.append(clip_path)
 
         if cancel_check and cancel_check():
             return VideoOutput(video_path=output_path)
 
-        # Compose
+        # Step 4: Compose final video
         if on_progress is not None:
             on_progress("composing", 0.0)
 
         try:
             video_path, subtitle_path = self._compose(
                 clip_paths=clip_paths,
-                audio_path=audio_path,
+                audio_path=narration.audio_path,
                 output_path=output_path,
-                metadata_path=metadata_path,
+                metadata_path=narration.metadata_path,
                 width=self._width,
                 height=self._height,
                 fps=self._fps,
@@ -249,6 +262,7 @@ class HybridGenerator(VideoGenerator):
         scene: object,
         idx: int,
         workdir: Path,
+        duration: float,
         used_urls: set[str],
         used_narration_words: set[str],
         title: str = "",
@@ -259,6 +273,7 @@ class HybridGenerator(VideoGenerator):
             scene: A scene object with visual_keywords and narration.
             idx: Scene index (used for pagination).
             workdir: Directory for downloaded clips.
+            duration: Target duration (measured narration), in seconds.
             used_urls: Set of already-downloaded URLs (deduplicated in-place).
             used_narration_words: Set of narration words already used in
                 earlier scenes (deduplicated in-place).
@@ -297,11 +312,9 @@ class HybridGenerator(VideoGenerator):
             logger.warning("Failed to download stock clip for scene %d", idx)
             return None
 
-        # Trim or loop the stock clip to match the scene's intended duration
         trimmed = workdir / f"stock_{idx:04d}_trimmed.mp4"
-        scene_dur = getattr(scene, "duration_seconds", 8)
         try:
-            dest = self._trim(dest, scene_dur, trimmed)
+            dest = self._trim(dest, duration, trimmed)
         except CompositionError:
             logger.warning("Failed to trim/loop stock clip for scene %d, using raw clip", idx)
 
@@ -312,7 +325,7 @@ class HybridGenerator(VideoGenerator):
         scene: object,
         idx: int,
         workdir: Path,
-        budget_remaining: int,
+        duration: float,
         *,
         cancel_check: Callable[[], bool] | None = None,
     ) -> Path | None:
@@ -335,10 +348,8 @@ class HybridGenerator(VideoGenerator):
             _http_client=self._http_client,
         )
 
-        try:
-            task_id = ai_gen._submit_task(prompt)
-            video_url = await ai_gen._poll_task(task_id, cancel_check=cancel_check)
-        except VideoSourceError:
+        video_url = await ai_gen._try_generate(prompt, duration, cancel_check=cancel_check)
+        if video_url is None:
             logger.warning("Kling generation failed for '%s'", prompt)
             return None
 
@@ -349,11 +360,9 @@ class HybridGenerator(VideoGenerator):
             logger.warning("Failed to download AI clip for scene %d", idx)
             return None
 
-        # Trim or loop the AI clip to match the scene's intended duration
         trimmed = workdir / f"ai_{idx:04d}_trimmed.mp4"
-        scene_dur = getattr(scene, "duration_seconds", 8)
         try:
-            dest = self._trim(dest, scene_dur, trimmed)
+            dest = self._trim(dest, duration, trimmed)
         except CompositionError:
             logger.warning("Failed to trim/loop AI clip for scene %d, using raw clip", idx)
 

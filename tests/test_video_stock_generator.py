@@ -12,6 +12,7 @@ import pytest
 from factful.video.exceptions import NoUsableClipsError, VideoSourceError
 from factful.video.generators.stock import StockGenerator
 from factful.video.interfaces import VideoOutput, VideoRequest, VideoScript
+from factful.video.narration import NarrationTrack
 from factful.video.script_director import SceneOut, ScriptDirector
 
 # ---------------------------------------------------------------------------
@@ -255,6 +256,13 @@ class TestStockGeneratorDownload:
 class TestStockGeneratorGenerate:
     """End-to-end generate() with all collaborators mocked."""
 
+    def _track(self, tmp_path: Path, durations: list[float]) -> NarrationTrack:
+        audio = tmp_path / "voiceover.wav"
+        audio.write_bytes(b"wav")
+        meta = tmp_path / "voiceover.jsonl"
+        meta.write_text("", encoding="utf-8")
+        return NarrationTrack(audio_path=audio, metadata_path=meta, durations=durations)
+
     async def test_generate_returns_video_output(self, tmp_path: Path) -> None:
         """RED: successful generation returns a VideoOutput."""
         scene = SceneOut(
@@ -277,14 +285,14 @@ class TestStockGeneratorGenerate:
         mock_dir = MagicMock(spec=ScriptDirector)
         mock_dir.analyze.return_value = script
 
-        mock_tts = AsyncMock(return_value=(tmp_path / "audio.wav", tmp_path / "meta.jsonl"))
+        mock_narration = AsyncMock(return_value=self._track(tmp_path, [5.0]))
         mock_compose = MagicMock(return_value=(tmp_path / "final.mp4", tmp_path / "final.vtt"))
 
         gen = StockGenerator(
             pexels_api_key="key",
             script_director=mock_dir,
             _http_client=mock_http,
-            _tts=mock_tts,
+            _narration=mock_narration,
             _compose=mock_compose,
             _trim=MagicMock(),
         )
@@ -315,8 +323,8 @@ class TestStockGeneratorGenerate:
                 tmp_path / "final.mp4",
             )
 
-    async def test_generate_no_clips_fetched_raises(self, tmp_path: Path) -> None:
-        """RED: when Pexels returns no results for any scene, NoUsableClipsError is raised."""
+    async def test_generate_uses_placeholder_when_no_clips(self, tmp_path: Path) -> None:
+        """RED: a scene with no Pexels result still gets a sized placeholder."""
         scene = SceneOut(
             narration="A scene.",
             visual_keywords=["unicorn", "rainbow"],
@@ -336,20 +344,31 @@ class TestStockGeneratorGenerate:
         mock_dir = MagicMock(spec=ScriptDirector)
         mock_dir.analyze.return_value = script
 
+        placeholder = tmp_path / "placeholder.mp4"
+        placeholder.write_bytes(b"mp4")
+        mock_placeholder = MagicMock(return_value=placeholder)
+        mock_compose = MagicMock(return_value=(tmp_path / "final.mp4", None))
+
         gen = StockGenerator(
             pexels_api_key="key",
             script_director=mock_dir,
             _http_client=mock_http,
+            _narration=AsyncMock(return_value=self._track(tmp_path, [5.0])),
+            _placeholder=mock_placeholder,
+            _compose=mock_compose,
+            _trim=MagicMock(),
         )
 
-        with pytest.raises(NoUsableClipsError, match="Could not fetch any stock video clips"):
-            await gen.generate(
-                VideoRequest(markdown=SAMPLE_MARKDOWN, title=SAMPLE_TITLE),
-                tmp_path / "final.mp4",
-            )
+        output = await gen.generate(
+            VideoRequest(markdown=SAMPLE_MARKDOWN, title=SAMPLE_TITLE),
+            tmp_path / "final.mp4",
+        )
 
-    async def test_generate_skips_ai_scenes(self, tmp_path: Path) -> None:
-        """RED: scenes needing AI generation are skipped, not searched."""
+        assert isinstance(output, VideoOutput)
+        mock_placeholder.assert_called_once()
+
+    async def test_generate_renders_ai_scenes_with_stock(self, tmp_path: Path) -> None:
+        """RED: AI-flagged scenes are no longer skipped by the stock strategy."""
         ai_scene = SceneOut(
             narration="AI scene.",
             visual_keywords=["quantum"],
@@ -380,15 +399,13 @@ class TestStockGeneratorGenerate:
         mock_dir = MagicMock(spec=ScriptDirector)
         mock_dir.analyze.return_value = script
 
-        mock_tts = AsyncMock(return_value=(tmp_path / "audio.wav", tmp_path / "meta.wav"))
-        mock_compose = MagicMock(return_value=(tmp_path / "final.mp4", tmp_path / "final.vtt"))
-
         gen = StockGenerator(
             pexels_api_key="key",
             script_director=mock_dir,
             _http_client=mock_http,
-            _tts=mock_tts,
-            _compose=mock_compose,
+            _narration=AsyncMock(return_value=self._track(tmp_path, [5.0, 5.0])),
+            _placeholder=MagicMock(return_value=tmp_path / "ph.mp4"),
+            _compose=MagicMock(return_value=(tmp_path / "final.mp4", None)),
             _trim=MagicMock(),
         )
 
@@ -398,12 +415,10 @@ class TestStockGeneratorGenerate:
         )
 
         assert isinstance(output, VideoOutput)
-        # First call is search (with params), second is download (no params)
-        assert mock_http.get.call_count == 2
-        search_call = mock_http.get.call_args_list[0]
-        search_params = search_call[1].get("params", {})
-        assert "sunset" in search_params.get("query", "")
-        # No search was made for "quantum" (AI scene was skipped)
-        for call in mock_http.get.call_args_list:
-            params = call[1].get("params", {})
-            assert "quantum" not in params.get("query", "")
+        searched = [
+            call[1].get("params", {}).get("query", "")
+            for call in mock_http.get.call_args_list
+            if call[1].get("params")
+        ]
+        assert any("quantum" in q for q in searched)
+        assert any("sunset" in q for q in searched)

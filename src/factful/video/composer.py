@@ -49,11 +49,12 @@ def _get_ffmpeg() -> str:
         return "ffmpeg"
 
 
-def _probe_duration(path: Path, ffmpeg_bin: str) -> float:
-    """Quickly read a clip's duration from its header (no decode)."""
+def probe_duration(path: Path, ffmpeg_bin: str | None = None) -> float:
+    """Quickly read a media file's duration from its header (no decode)."""
+    ffmpeg = ffmpeg_bin or _get_ffmpeg()
     try:
         result = sp.run(  # noqa: S603
-            [ffmpeg_bin, "-i", str(path), "-f", "null", "-"],
+            [ffmpeg, "-i", str(path), "-f", "null", "-"],
             capture_output=True,
             text=True,
             timeout=15,
@@ -74,12 +75,94 @@ def _probe_duration(path: Path, ffmpeg_bin: str) -> float:
     return 8.0
 
 
-def _probe_audio_duration(audio_path: Path) -> float:
-    """Return the duration (seconds) of an audio file via FFmpeg probe.
+def concat_audio_files(
+    paths: list[Path],
+    output_path: Path,
+    *,
+    ffmpeg_bin: str | None = None,
+) -> Path:
+    """Concatenate audio files into a single PCM WAV via the concat demuxer.
 
-    Falls back to ``_probe_duration`` which works on audio files too.
+    Used to join per-scene narration clips into one voiceover track.
+
+    Raises:
+        CompositionError: if no inputs are given or FFmpeg fails.
     """
-    return _probe_duration(audio_path, _get_ffmpeg())
+    if not paths:
+        raise CompositionError("no audio files to concatenate")
+
+    ffmpeg = ffmpeg_bin or _get_ffmpeg()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        filelist = Path(f.name)
+        for p in paths:
+            f.write(f"file '{p.resolve()}'\n")
+
+    cmd = [
+        ffmpeg,
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        str(filelist),
+        "-c:a",
+        "pcm_s16le",
+        "-y",
+        str(output_path),
+    ]
+    try:
+        sp.run(cmd, capture_output=True, text=True, timeout=300, check=True)  # noqa: S603
+    except sp.CalledProcessError as exc:
+        raise CompositionError(f"failed to concatenate audio: {exc.stderr[:500]}") from exc
+    finally:
+        filelist.unlink(missing_ok=True)
+
+    return output_path
+
+
+def make_placeholder_clip(
+    duration: float,
+    output_path: Path,
+    *,
+    width: int = 1920,
+    height: int = 1080,
+    fps: int = 30,
+    ffmpeg_bin: str | None = None,
+) -> Path:
+    """Create a solid-black placeholder clip of *duration* seconds.
+
+    Used when no visual source could be fetched for a scene, so every
+    narration segment still has a correctly-sized visual.
+
+    Raises:
+        CompositionError: if FFmpeg fails or *duration* is not positive.
+    """
+    if duration <= 0:
+        raise CompositionError(f"placeholder duration must be positive, got {duration}")
+
+    ffmpeg = ffmpeg_bin or _get_ffmpeg()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        ffmpeg,
+        "-f",
+        "lavfi",
+        "-i",
+        f"color=c=black:s={width}x{height}:r={fps}:d={duration}",
+        "-pix_fmt",
+        "yuv420p",
+        "-t",
+        str(duration),
+        "-y",
+        str(output_path),
+    ]
+    try:
+        sp.run(cmd, capture_output=True, text=True, timeout=int(duration) + 60, check=True)  # noqa: S603
+    except sp.CalledProcessError as exc:
+        raise CompositionError(f"failed to create placeholder clip: {exc.stderr[:500]}") from exc
+
+    return output_path
 
 
 def _probe_format(path: Path, ffmpeg_bin: str) -> dict[str, str | int] | None:
@@ -169,7 +252,7 @@ def trim_or_loop_clip(
         CompositionError: if FFmpeg fails.
     """
     ffmpeg = ffmpeg_bin or _get_ffmpeg()
-    actual = _probe_duration(clip_path, ffmpeg) or 0.0
+    actual = probe_duration(clip_path, ffmpeg) or 0.0
     if actual <= 0:
         logger.warning("%s: cannot probe duration, leaving unclipped", clip_path.name)
         return clip_path
@@ -179,20 +262,30 @@ def trim_or_loop_clip(
         output_path.write_bytes(clip_path.read_bytes())
         return output_path
 
-    # For loops we use -stream_loop -1 (loop infinitely) and cap with -t
-    cmd = [
-        ffmpeg,
-        "-stream_loop",
-        "-1" if actual < target_duration else "0",
-        "-i",
-        str(clip_path),
-        "-t",
-        str(target_duration),
-        "-c",
-        "copy" if actual >= target_duration else "aac",
-        "-y",
-        str(output_path),
-    ]
+    # Re-encode to the exact target so every scene's visual matches its
+    # narration.  Audio is dropped (``-an``): the final soundtrack comes
+    # from the concatenated voiceover, and dropping it avoids codec
+    # mismatches.  Short clips are looped with ``-stream_loop -1``.
+    cmd: list[str] = [ffmpeg]
+    if actual < target_duration:
+        cmd.extend(["-stream_loop", "-1"])
+    cmd.extend(
+        [
+            "-i",
+            str(clip_path),
+            "-t",
+            str(target_duration),
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-pix_fmt",
+            "yuv420p",
+            "-an",
+            "-y",
+            str(output_path),
+        ]
+    )
     try:
         sp.run(cmd, capture_output=True, text=True, timeout=int(target_duration) + 60, check=True)  # noqa: S603
     except sp.CalledProcessError as exc:
@@ -203,11 +296,18 @@ def trim_or_loop_clip(
     return output_path
 
 
-def _scale_filter(width: int, height: int) -> str:
-    """FFmpeg filter string to scale+pad to *width*x*height*."""
+def _scale_filter(width: int, height: int, fps: int) -> str:
+    """FFmpeg filter string to scale+pad to *width*x*height* and normalize fps.
+
+    Normalizing the frame rate is required before ``concat``: mixing clips
+    with different frame rates (e.g. 30 vs 29.97) yields a variable-frame-rate
+    stream for which ``tpad`` cannot extend the freeze-frame, so the video
+    stream ends before the voiceover.
+    """
     return (
         f"scale={width}:{height}:force_original_aspect_ratio=1,"
-        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1"
+        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,"
+        f"fps={fps},setsar=1"
     )
 
 
@@ -298,7 +398,7 @@ def _encode_stream_copy(
     # --- total duration ---
     total_duration = 0.0
     for p in clip_paths:
-        total_duration += _probe_duration(p, ffmpeg)
+        total_duration += probe_duration(p, ffmpeg)
 
     # --- temp file list ---
     with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
@@ -364,6 +464,7 @@ def _encode_concat_filter(
     *,
     width: int = 1920,
     height: int = 1080,
+    fps: int = 30,
     bitrate: str = "4000k",
     music_path: Path | None = None,
     music_volume: float = 0.15,
@@ -384,7 +485,7 @@ def _encode_concat_filter(
 
     total_duration = 0.0
     for p in clip_paths:
-        total_duration += _probe_duration(p, ffmpeg)
+        total_duration += probe_duration(p, ffmpeg)
 
     if total_duration <= 0:
         raise CompositionError("could not determine clip durations")
@@ -396,7 +497,7 @@ def _encode_concat_filter(
 
     filters: list[str] = []
     for i in range(n_clips):
-        filters.append(f"[{i}:v]{_scale_filter(width, height)}[v{i}]")
+        filters.append(f"[{i}:v]{_scale_filter(width, height, fps)}[v{i}]")
 
     concat_in = "".join(f"[v{i}]" for i in range(n_clips))
     filters.append(f"{concat_in}concat=n={n_clips}:v=1:a=0[vid]")
@@ -493,8 +594,8 @@ def _encode_with_ffmpeg(
     ffmpeg = _get_ffmpeg()
 
     # Probe audio and clip durations to decide on padding
-    audio_dur = _probe_audio_duration(audio_path)
-    clip_dur = sum(_probe_duration(p, ffmpeg) for p in clip_paths)
+    audio_dur = probe_duration(audio_path)
+    clip_dur = sum(probe_duration(p, ffmpeg) for p in clip_paths)
     needs_pad = audio_dur > clip_dur + 0.5
 
     if needs_pad:
@@ -509,6 +610,7 @@ def _encode_with_ffmpeg(
             output_path,
             width=width,
             height=height,
+            fps=fps,
             bitrate=bitrate,
             music_path=music_path,
             music_volume=music_volume,
@@ -531,6 +633,7 @@ def _encode_with_ffmpeg(
             output_path,
             width=width,
             height=height,
+            fps=fps,
             bitrate=bitrate,
             music_path=music_path,
             music_volume=music_volume,

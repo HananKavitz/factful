@@ -10,9 +10,10 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from factful.video.exceptions import VideoSourceError
+from factful.video.exceptions import NoUsableClipsError, VideoSourceError
 from factful.video.generators.ai import AiGenerator
 from factful.video.interfaces import VideoOutput, VideoRequest, VideoScript
+from factful.video.narration import NarrationTrack
 from factful.video.script_director import SceneOut
 
 SAMPLE_MARKDOWN = "# AI Topic\n\nQuantum computing."
@@ -199,6 +200,13 @@ class TestAiGeneratorDownload:
 class TestAiGeneratorGenerate:
     """Full generate() pipeline with mocks."""
 
+    def _track(self, tmp_path: Path, durations: list[float]) -> NarrationTrack:
+        audio = tmp_path / "voiceover.wav"
+        audio.write_bytes(b"wav")
+        meta = tmp_path / "voiceover.jsonl"
+        meta.write_text("", encoding="utf-8")
+        return NarrationTrack(audio_path=audio, metadata_path=meta, durations=durations)
+
     async def test_generate_with_ai_scenes(self, tmp_path: Path) -> None:
         """RED: generates AI clips for scenes needing AI, returns VideoOutput."""
         ai_scene = SceneOut(
@@ -226,20 +234,16 @@ class TestAiGeneratorGenerate:
         type(download_resp).content = PropertyMock(return_value=b"gen data")
 
         mock_client.post.return_value = submit_resp
-        mock_client.get.return_value = poll_resp
-
-        # Need to handle 2 GET calls: poll then download
-        # Use side_effect for different responses
+        # Handle 2 GET calls: poll then download
         mock_client.get.side_effect = [poll_resp, download_resp]
 
-        mock_tts = AsyncMock(return_value=(tmp_path / "audio.wav", tmp_path / "meta.wav"))
         mock_compose = MagicMock(return_value=(tmp_path / "final.mp4", tmp_path / "final.vtt"))
 
         gen = AiGenerator(
             access_key="key",
             secret_key="secret",
             _http_client=mock_client,
-            _tts=mock_tts,
+            _narration=AsyncMock(return_value=self._track(tmp_path, [5.0])),
             _compose=mock_compose,
             _trim=MagicMock(),
         )
@@ -253,8 +257,8 @@ class TestAiGeneratorGenerate:
         assert isinstance(output, VideoOutput)
         assert output.video_path == tmp_path / "final.mp4"
 
-    async def test_generate_skips_non_ai_scenes(self, tmp_path: Path) -> None:
-        """RED: scenes without need_ai_generation are skipped."""
+    async def test_generate_renders_non_ai_scenes(self, tmp_path: Path) -> None:
+        """RED: every scene is AI-generated, not just need_ai_generation ones."""
         stock_scene = SceneOut(
             narration="A generic visual.",
             visual_keywords=["nature"],
@@ -265,17 +269,22 @@ class TestAiGeneratorGenerate:
         )
         script = VideoScript(scenes=[stock_scene], music_mood="neutral", overall_pace="moderate")
 
-        # If no AI scenes, no Kling API calls should be made
         mock_client = MagicMock(spec=httpx.Client)
-        mock_tts = AsyncMock(return_value=(tmp_path / "audio.wav", tmp_path / "meta.wav"))
+        mock_client.post.side_effect = httpx.RequestError("offline")
+
+        placeholder = tmp_path / "placeholder.mp4"
+        placeholder.write_bytes(b"mp4")
+        mock_placeholder = MagicMock(return_value=placeholder)
         mock_compose = MagicMock(return_value=(tmp_path / "final.mp4", tmp_path / "final.vtt"))
 
         gen = AiGenerator(
             access_key="key",
             secret_key="secret",
             _http_client=mock_client,
-            _tts=mock_tts,
+            _narration=AsyncMock(return_value=self._track(tmp_path, [5.0])),
+            _placeholder=mock_placeholder,
             _compose=mock_compose,
+            _trim=MagicMock(),
         )
 
         output = await gen.generate(
@@ -285,7 +294,56 @@ class TestAiGeneratorGenerate:
         )
 
         assert isinstance(output, VideoOutput)
-        mock_client.post.assert_not_called()
-        # GET calls: should only be download attempts — none since no AI scenes
-        # Actually there will be no clips at all, so no GET calls either
-        assert mock_client.get.call_count == 0
+        # The non-AI scene was still submitted to Kling (then fell back).
+        assert mock_client.post.called
+        mock_placeholder.assert_called_once()
+
+    async def test_generate_placeholder_on_kling_failure(self, tmp_path: Path) -> None:
+        """RED: a failing scene still gets a placeholder of the right length."""
+        scene = SceneOut(
+            narration="Quantum.",
+            visual_keywords=["quantum"],
+            shot_type="close_up",
+            duration_seconds=5,
+            need_ai_generation=True,
+            ai_confidence=0.9,
+        )
+        script = VideoScript(scenes=[scene], music_mood="neutral", overall_pace="moderate")
+
+        mock_client = MagicMock(spec=httpx.Client)
+        mock_client.post.side_effect = httpx.RequestError("offline")
+
+        mock_placeholder = MagicMock(return_value=tmp_path / "placeholder.mp4")
+        mock_compose = MagicMock(return_value=(tmp_path / "final.mp4", None))
+
+        gen = AiGenerator(
+            access_key="key",
+            secret_key="secret",
+            _http_client=mock_client,
+            _narration=AsyncMock(return_value=self._track(tmp_path, [7.5])),
+            _placeholder=mock_placeholder,
+            _compose=mock_compose,
+            _trim=MagicMock(),
+        )
+
+        await gen.generate(
+            VideoRequest(markdown=SAMPLE_MARKDOWN, title=SAMPLE_TITLE),
+            tmp_path / "final.mp4",
+            script=script,
+        )
+
+        # One retry → two submit attempts, then a placeholder sized to 7.5s.
+        assert mock_client.post.call_count == 2
+        assert mock_placeholder.call_args.args[0] == 7.5
+
+    async def test_generate_empty_script_raises(self, tmp_path: Path) -> None:
+        """RED: an empty script is a hard error."""
+        script = VideoScript(scenes=[], music_mood="neutral", overall_pace="moderate")
+        gen = AiGenerator(access_key="key", secret_key="secret")
+
+        with pytest.raises(NoUsableClipsError, match="no scenes"):
+            await gen.generate(
+                VideoRequest(markdown=SAMPLE_MARKDOWN, title=SAMPLE_TITLE),
+                tmp_path / "final.mp4",
+                script=script,
+            )

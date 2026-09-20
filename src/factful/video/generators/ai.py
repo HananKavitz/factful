@@ -25,10 +25,14 @@ from typing import Any
 
 import httpx
 
-from factful.video.composer import compose_final_video, trim_or_loop_clip
+from factful.video.composer import (
+    compose_final_video,
+    make_placeholder_clip,
+    trim_or_loop_clip,
+)
 from factful.video.exceptions import (
     CompositionError,
-    TTSGenerationError,
+    NoUsableClipsError,
     VideoSourceError,
 )
 from factful.video.interfaces import (
@@ -37,8 +41,8 @@ from factful.video.interfaces import (
     VideoRequest,
     VideoScript,
 )
+from factful.video.narration import synthesize_narration
 from factful.video.script_director import ScriptDirector
-from factful.video.tts import generate_speech
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +86,8 @@ class AiGenerator(VideoGenerator):
         model: Kling model name.
         clip_duration_seconds: Duration per AI-generated clip.
         _http_client: Optional injected ``httpx.Client`` (for tests).
-        _tts: Optional injected TTS callable (for tests).
+        _narration: Optional injected narration synthesizer (for tests).
+        _placeholder: Optional injected placeholder maker (for tests).
         _compose: Optional injected compose callable (for tests).
         _trim: Optional injected clip trim/loop callable (for tests).
     """
@@ -102,7 +107,8 @@ class AiGenerator(VideoGenerator):
         model: str = "kling/kling-1.6",
         clip_duration_seconds: int = 5,
         _http_client: httpx.Client | None = None,
-        _tts: Callable[..., Any] | None = None,
+        _narration: Callable[..., Any] | None = None,
+        _placeholder: Callable[..., Any] | None = None,
         _compose: Callable[..., Any] | None = None,
         _trim: Callable[..., Any] | None = None,
     ) -> None:
@@ -118,7 +124,8 @@ class AiGenerator(VideoGenerator):
         self._model = model
         self._clip_duration = clip_duration_seconds
         self._http_client = _http_client or httpx.Client(timeout=60.0)
-        self._tts = _tts or generate_speech
+        self._narration = _narration or synthesize_narration
+        self._placeholder = _placeholder or make_placeholder_clip
         self._compose = _compose or compose_final_video
         self._trim = _trim or trim_or_loop_clip
 
@@ -142,10 +149,9 @@ class AiGenerator(VideoGenerator):
         """Run the full AI-video pipeline.
 
         1. Script Director (if needed)
-        2. Submit & poll Kling tasks for AI scenes
-        3. Download generated clips
-        4. TTS voiceover
-        5. Compose final video
+        2. Per-scene narration (measured durations)
+        3. One Kling clip per scene (retry, then placeholder), sized to narration
+        4. Compose final video
         """
         if on_progress is not None:
             on_progress("script_director", 0.0)
@@ -154,95 +160,65 @@ class AiGenerator(VideoGenerator):
         if script is None and self._director is not None:
             script = self._director.analyze(markdown=request.markdown, title=request.title)
 
-        script = script or VideoScript()
+        if not script or not script.scenes:
+            raise NoUsableClipsError("Script Director returned no scenes")
 
-        # Step 2: Generate AI clips for scenes that need them
+        workdir = output_path.parent / f".ai_{uuid.uuid4().hex[:8]}"
+        workdir.mkdir(parents=True, exist_ok=True)
+        voice = request.voice or self._voice
+
+        # Step 2: narration — measured durations drive clip lengths
+        if on_progress is not None:
+            on_progress("tts", 0.0)
+        narration = await self._narration(
+            script.scenes,
+            workdir,
+            voice=voice,
+            rate=self._tts_rate,
+            pitch=self._tts_pitch,
+            on_progress=(lambda f: on_progress("tts", f)) if on_progress is not None else None,
+        )
+
+        if cancel_check and cancel_check():
+            return VideoOutput(video_path=output_path)
+
+        # Step 3: one AI clip per scene, trimmed to the narrated duration
         if on_progress is not None:
             on_progress("generating_clips", 0.0)
 
         clip_paths: list[Path] = []
-        workdir = output_path.parent / f".ai_{uuid.uuid4().hex[:8]}"
-        workdir.mkdir(parents=True, exist_ok=True)
+        total_scenes = len(script.scenes)
 
-        ai_scenes = [s for s in script.scenes if s.need_ai_generation]
-        total_ai = max(len(ai_scenes), 1)
-
-        for idx, scene in enumerate(ai_scenes):
+        for idx, scene in enumerate(script.scenes):
             if cancel_check and cancel_check():
                 return VideoOutput(video_path=output_path)
 
             if on_progress is not None:
-                on_progress("generating_clips", (idx + 1) / total_ai)
+                on_progress("generating_clips", (idx + 1) / total_scenes)
 
-            prompt = " ".join(scene.visual_keywords) if scene.visual_keywords else ""
-            if not prompt:
-                prompt = scene.narration[:200]
-
-            # Request the clip with a duration that respects Kling's max
-            kling_duration = min(scene.duration_seconds, self._clip_duration)
-            try:
-                task_id = self._submit_task(prompt, duration=kling_duration)
-                video_url = await self._poll_task(task_id, cancel_check=cancel_check)
-            except VideoSourceError:
-                logger.warning("Kling generation failed for prompt '%s'", prompt)
-                continue
-
-            clip_dest = workdir / f"scene_{idx:04d}.mp4"
-            try:
-                self._download_clip(video_url, clip_dest)
-            except VideoSourceError:
-                logger.warning("Failed to download Kling clip for scene %d", idx)
-                continue
-
-            # Trim or loop the clip to match the scene's intended duration
-            trimmed = workdir / f"scene_{idx:04d}_trimmed.mp4"
-            try:
-                clip_dest = self._trim(clip_dest, scene.duration_seconds, trimmed)
-            except CompositionError:
-                logger.warning("Failed to trim/loop AI clip for scene %d, using raw clip", idx)
-
-            clip_paths.append(clip_dest)
-
-        if not clip_paths:
-            logger.warning("No AI clips were generated — will produce an audio-only video")
-            # Proceed with TTS + compose anyway (no clips = placeholder)
-
-        if cancel_check and cancel_check():
-            return VideoOutput(video_path=output_path)
-
-        # Step 4: TTS
-        if on_progress is not None:
-            on_progress("tts", 0.0)
-
-        voice = request.voice or self._voice
-        full_text = "\n".join(s.narration for s in script.scenes if s.narration)
-        audio_path = workdir / "voiceover.wav"
-
-        try:
-            audio_path, metadata_path = await self._tts(
-                full_text,
-                audio_path,
-                voice=voice,
-                rate=self._tts_rate,
-                pitch=self._tts_pitch,
+            clip_paths.append(
+                await self._fetch_scene_clip(
+                    scene,
+                    idx,
+                    workdir,
+                    narration.durations[idx],
+                    cancel_check=cancel_check,
+                )
             )
-        except TTSGenerationError:
-            logger.error("TTS generation failed")
-            raise
 
         if cancel_check and cancel_check():
             return VideoOutput(video_path=output_path)
 
-        # Step 5: Compose final video
+        # Step 4: Compose final video
         if on_progress is not None:
             on_progress("composing", 0.0)
 
         try:
             video_path, subtitle_path = self._compose(
                 clip_paths=clip_paths,
-                audio_path=audio_path,
+                audio_path=narration.audio_path,
                 output_path=output_path,
-                metadata_path=metadata_path,
+                metadata_path=narration.metadata_path,
                 width=self._width,
                 height=self._height,
                 fps=self._fps,
@@ -269,6 +245,70 @@ class AiGenerator(VideoGenerator):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    async def _fetch_scene_clip(
+        self,
+        scene: Any,
+        idx: int,
+        workdir: Path,
+        duration: float,
+        *,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> Path:
+        """Generate and trim one AI clip for a scene, or a placeholder on failure."""
+        prompt = " ".join(scene.visual_keywords) if scene.visual_keywords else ""
+        if not prompt:
+            prompt = scene.narration[:200]
+
+        if prompt:
+            video_url = await self._try_generate(prompt, duration, cancel_check=cancel_check)
+            if video_url is not None:
+                clip_dest = workdir / f"scene_{idx:04d}.mp4"
+                try:
+                    self._download_clip(video_url, clip_dest)
+                    trimmed = workdir / f"scene_{idx:04d}_trimmed.mp4"
+                    try:
+                        return self._trim(clip_dest, duration, trimmed)
+                    except CompositionError:
+                        logger.warning(
+                            "Failed to trim/loop AI clip for scene %d, using raw clip", idx
+                        )
+                        return clip_dest
+                except VideoSourceError:
+                    logger.warning("Failed to download Kling clip for scene %d", idx)
+
+        logger.info("No AI clip for scene %d — using placeholder", idx)
+        return self._placeholder(
+            duration,
+            workdir / f"scene_{idx:04d}_placeholder.mp4",
+            width=self._width,
+            height=self._height,
+            fps=self._fps,
+        )
+
+    async def _try_generate(
+        self,
+        prompt: str,
+        duration: float,
+        *,
+        cancel_check: Callable[[], bool] | None = None,
+        attempts: int = 2,
+    ) -> str | None:
+        """Submit and poll a Kling task, retrying once before giving up."""
+        kling_duration = min(self._clip_duration, max(2, round(duration)))
+        for attempt in range(1, attempts + 1):
+            try:
+                task_id = self._submit_task(prompt, duration=kling_duration)
+                return await self._poll_task(task_id, cancel_check=cancel_check)
+            except VideoSourceError as exc:
+                logger.warning(
+                    "Kling attempt %d/%d failed for prompt '%s': %s",
+                    attempt,
+                    attempts,
+                    prompt,
+                    exc,
+                )
+        return None
 
     def _auth_headers(self, *, method: str, path: str, body: str = "") -> dict[str, str]:
         """Build Kling API authentication headers for any method/path."""

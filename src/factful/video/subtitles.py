@@ -77,6 +77,31 @@ def _batch_cues(events: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     return cues
 
 
+def merge_tts_metadata(
+    segments: list[tuple[Path, float]],
+    output_path: Path,
+) -> Path:
+    """Merge per-scene edge-tts JSONL files into one offset-corrected file.
+
+    Each segment is ``(jsonl_path, start_seconds)``; every WordBoundary
+    event's ``offset`` is shifted by the segment's start so the combined
+    file is a valid timeline for the concatenated voiceover.
+
+    Missing scene files are skipped.  Raises nothing for empty input —
+    the written file may simply contain no events.
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    lines: list[str] = []
+    for path, start_seconds in segments:
+        shift = int(start_seconds * 10_000_000)
+        for ev in _parse_jsonl(path):
+            ev = dict(ev)
+            ev["offset"] = int(ev.get("offset", 0)) + shift
+            lines.append(json.dumps(ev, ensure_ascii=False))
+    output_path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+    return output_path
+
+
 def build_vtt(metadata_path: Path) -> str:
     """Convert a single edge-tts JSONL file to a WebVTT subtitle string.
 

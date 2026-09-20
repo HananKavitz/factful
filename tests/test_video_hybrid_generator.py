@@ -12,10 +12,19 @@ import pytest
 from factful.video.exceptions import NoUsableClipsError
 from factful.video.generators.hybrid import HybridGenerator
 from factful.video.interfaces import VideoOutput, VideoRequest, VideoScript
+from factful.video.narration import NarrationTrack
 from factful.video.script_director import SceneOut
 
 SAMPLE_MARKDOWN = "# Hybrid\n\nSome generic and some specific content."
 SAMPLE_TITLE = "Hybrid Article"
+
+
+def _track(tmp_path: Path, durations: list[float]) -> NarrationTrack:
+    audio = tmp_path / "voiceover.wav"
+    audio.write_bytes(b"wav")
+    meta = tmp_path / "voiceover.jsonl"
+    meta.write_text("", encoding="utf-8")
+    return NarrationTrack(audio_path=audio, metadata_path=meta, durations=durations)
 
 
 def _pexels_response(*, total: int = 1) -> dict[str, Any]:
@@ -131,7 +140,7 @@ class TestHybridGeneratorGenerate:
         mock_http.get.side_effect = [pexels_resp, stock_dl, kling_poll, ai_dl]
         mock_http.post.return_value = kling_submit
 
-        mock_tts = AsyncMock(return_value=(tmp_path / "audio.wav", tmp_path / "meta.wav"))
+        mock_narration = AsyncMock(return_value=_track(tmp_path, [5.0, 5.0]))
         mock_compose = MagicMock(return_value=(tmp_path / "final.mp4", tmp_path / "final.vtt"))
 
         gen = HybridGenerator(
@@ -139,7 +148,7 @@ class TestHybridGeneratorGenerate:
             ai_access_key="ak",
             ai_secret_key="sk",
             _http_client=mock_http,
-            _tts=mock_tts,
+            _narration=mock_narration,
             _compose=mock_compose,
             _trim=MagicMock(),
         )
@@ -191,7 +200,7 @@ class TestHybridGeneratorGenerate:
         mock_http.post.return_value = submit_resp
         mock_http.get.side_effect = [poll_resp, dl_resp, poll_resp, dl_resp, poll_resp, dl_resp] * 3
 
-        mock_tts = AsyncMock(return_value=(tmp_path / "audio.wav", tmp_path / "meta.wav"))
+        mock_narration = AsyncMock(return_value=_track(tmp_path, [10.0] * 6))
         mock_compose = MagicMock(return_value=(tmp_path / "final.mp4", tmp_path / "final.vtt"))
 
         gen = HybridGenerator(
@@ -199,7 +208,7 @@ class TestHybridGeneratorGenerate:
             ai_secret_key="sk",
             ai_budget_seconds=budget,
             _http_client=mock_http,
-            _tts=mock_tts,
+            _narration=mock_narration,
             _compose=mock_compose,
             _trim=MagicMock(),
         )
@@ -211,8 +220,55 @@ class TestHybridGeneratorGenerate:
         )
 
         assert isinstance(output, VideoOutput)
+        # Budget of 30s / 10s per scene → at most 3 Kling submissions.
+        assert mock_http.post.call_count == 3
 
-    async def test_no_scenes_falls_back_to_stock(self, tmp_path: Path) -> None:
+    async def test_placeholder_when_stock_and_ai_fail(self, tmp_path: Path) -> None:
+        """RED: a scene with no stock and no AI still gets a placeholder."""
+        scene = SceneOut(
+            narration="Specific concept.",
+            visual_keywords=["concept"],
+            shot_type="close_up",
+            duration_seconds=5,
+            need_ai_generation=True,
+            ai_confidence=0.95,
+        )
+        script = VideoScript(scenes=[scene], music_mood="analytical", overall_pace="moderate")
+
+        mock_http = MagicMock(spec=httpx.Client)
+        mock_http.post.side_effect = httpx.RequestError("offline")
+        # Pexels search returns nothing → no download.
+        pexels_resp = MagicMock(spec=httpx.Response)
+        pexels_resp.status_code = 200
+        pexels_resp.json.return_value = _pexels_response(total=0)
+        mock_http.get.return_value = pexels_resp
+
+        placeholder = tmp_path / "placeholder.mp4"
+        placeholder.write_bytes(b"mp4")
+        mock_placeholder = MagicMock(return_value=placeholder)
+        mock_compose = MagicMock(return_value=(tmp_path / "final.mp4", None))
+
+        gen = HybridGenerator(
+            pexels_api_key="k",
+            ai_access_key="ak",
+            ai_secret_key="sk",
+            _http_client=mock_http,
+            _narration=AsyncMock(return_value=_track(tmp_path, [8.0])),
+            _placeholder=mock_placeholder,
+            _compose=mock_compose,
+            _trim=MagicMock(),
+        )
+
+        output = await gen.generate(
+            VideoRequest(markdown=SAMPLE_MARKDOWN, title=SAMPLE_TITLE),
+            tmp_path / "final.mp4",
+            script=script,
+        )
+
+        assert isinstance(output, VideoOutput)
+        assert mock_placeholder.call_args.args[0] == 8.0
+
+    async def test_no_scenes_raises(self, tmp_path: Path) -> None:
         """RED: an empty script raises NoUsableClipsError."""
         script = VideoScript(scenes=[], music_mood="neutral", overall_pace="moderate")
 

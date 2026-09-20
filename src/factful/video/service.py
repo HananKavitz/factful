@@ -8,8 +8,10 @@ result to a ``Video`` database record.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import Callable, Mapping
+from dataclasses import asdict
 from pathlib import Path
 
 from sqlalchemy.orm import Session, sessionmaker
@@ -24,11 +26,34 @@ from factful.video.interfaces import (
     VideoGenerator,
     VideoOutput,
     VideoRequest,
+    VideoScript,
 )
 from factful.video.script_director import ScriptDirector
 from factful.video.settings import VideoSettings
 
 logger = logging.getLogger(__name__)
+
+
+def _write_script(script: VideoScript, directory: Path) -> Path:
+    """Persist the generated script to the video directory as JSON.
+
+    Written next to the rendered MP4 so the script that drove a video can
+    be inspected later (e.g. to verify every narration segment is covered
+    by a scene).
+
+    Args:
+        script: The ``VideoScript`` produced by the Script Director.
+        directory: The video output directory.
+
+    Returns:
+        The path of the written ``script.json`` file.
+    """
+    script_path = directory / "script.json"
+    script_path.write_text(
+        json.dumps(asdict(script), indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return script_path
 
 
 def build_video_service(
@@ -198,6 +223,14 @@ class VideoService:
             video_id = video_record.id
 
         try:
+            # Run the Script Director once here so the script can be saved
+            # and shared with the generator instead of being discarded.
+            script = self._director.analyze(
+                markdown=story.markdown or "",
+                title=story.title or "",
+            )
+            _write_script(script, output_dir)
+
             # Run the async generator
             output = asyncio.run(
                 generator.generate(
@@ -205,6 +238,7 @@ class VideoService:
                     output_path,
                     cancel_check=cancel_check,
                     on_progress=on_progress,
+                    script=script,
                 )
             )
         except VideoGenerationError:

@@ -240,8 +240,8 @@ def _render_video_job(
         )
         _stage_order: list[str] = [
             "script_director",
-            "fetching_clips",
             "tts",
+            "fetching_clips",
             "composing_clips",
             "mixing_audio",
             "concatenating",
