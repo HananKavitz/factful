@@ -10,8 +10,15 @@ from factful.video.subtitles import build_vtt, merge_tts_metadata
 
 def _write_jsonl(path: Path, offset: int, words: list[str]) -> None:
     lines = [
-        json.dumps({"type": "WordBoundary", "offset": offset, "duration": 1_000_000, "text": w})
-        for w in words
+        json.dumps(
+            {
+                "type": "WordBoundary",
+                "offset": offset + i * 1_000_000,
+                "duration": 1_000_000,
+                "text": w,
+            }
+        )
+        for i, w in enumerate(words)
     ]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -64,3 +71,67 @@ class TestMergeTtsMetadata:
         merge_tts_metadata([], merged)
         assert merged.read_text(encoding="utf-8") == ""
         assert build_vtt(merged) == ""
+
+
+class TestBuildVttPunctuation:
+    """Subtitle cues regain punctuation lost in WordBoundary metadata."""
+
+    def test_retains_sentence_and_comma_punctuation(self, tmp_path: Path) -> None:
+        """RED: trailing punctuation from the narration is reattached to words."""
+        meta = tmp_path / "m.jsonl"
+        _write_jsonl(
+            meta,
+            0,
+            ["It", "is", "growing", "rapidly", "in", "both", "scale"],
+        )
+
+        vtt = build_vtt(meta, narration_text="It is growing rapidly, in both scale.")
+
+        assert "rapidly," in vtt
+        assert "scale." in vtt
+
+    def test_reattaches_question_mark(self, tmp_path: Path) -> None:
+        """RED: sentence-final question marks survive into the cue text."""
+        meta = tmp_path / "m.jsonl"
+        _write_jsonl(meta, 0, ["down", "but", "then", "when", "do", "you", "beat", "him"])
+
+        vtt = build_vtt(meta, narration_text="down, but then when do you beat him?")
+
+        assert "down," in vtt
+        assert "him?" in vtt
+
+    def test_without_narration_text_is_unchanged(self, tmp_path: Path) -> None:
+        """RED: omitting narration text preserves the old word-only behaviour."""
+        meta = tmp_path / "m.jsonl"
+        _write_jsonl(meta, 0, ["hello", "world"])
+
+        assert "hello world" in build_vtt(meta)
+
+    def test_unmatched_word_falls_back_to_plain(self, tmp_path: Path) -> None:
+        """RED: a word absent from the narration is emitted without punctuation."""
+        meta = tmp_path / "m.jsonl"
+        _write_jsonl(meta, 0, ["unexpected"])
+
+        vtt = build_vtt(meta, narration_text="hello world.")
+
+        assert "unexpected" in vtt
+        assert "unexpected." not in vtt
+
+    def test_curly_apostrophe_word_matches(self, tmp_path: Path) -> None:
+        """RED: curly apostrophes align against their spoken tokens."""
+        meta = tmp_path / "m.jsonl"
+        _write_jsonl(meta, 0, ["I\u2019ve", "gone"])
+
+        vtt = build_vtt(meta, narration_text="I\u2019ve gone.")
+
+        assert "I\u2019ve gone." in vtt
+
+    def test_hyphenated_source_word(self, tmp_path: Path) -> None:
+        """RED: a hyphenated source word still aligns to its spoken tokens."""
+        meta = tmp_path / "m.jsonl"
+        _write_jsonl(meta, 0, ["military", "industrial", "complex"])
+
+        vtt = build_vtt(meta, narration_text="military-industrial complex.")
+
+        assert "complex." in vtt
+        assert "military industrial complex." in vtt

@@ -319,6 +319,7 @@ class StockGenerator(VideoGenerator):
                 audio_path=narration.audio_path,
                 output_path=output_path,
                 metadata_path=narration.metadata_path,
+                narration_text=narration.narration_text,
                 width=self._width,
                 height=self._height,
                 fps=self._fps,

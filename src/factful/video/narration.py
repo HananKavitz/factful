@@ -33,11 +33,13 @@ class NarrationTrack:
         audio_path: Concatenated voiceover WAV.
         metadata_path: Merged, offset-corrected WordBoundary JSONL.
         durations: Measured narration length (seconds) per scene, in order.
+        narration_text: Original punctuated narration, scenes joined in order.
     """
 
     audio_path: Path
     metadata_path: Path
     durations: list[float]
+    narration_text: str = ""
 
 
 async def synthesize_narration(
@@ -81,6 +83,7 @@ async def synthesize_narration(
     scene_audio: list[Path] = []
     scene_meta: list[Path] = []
     durations: list[float] = []
+    narration_parts: list[str] = []
 
     total = len(scenes)
     for idx, scene in enumerate(scenes):
@@ -104,6 +107,7 @@ async def synthesize_narration(
         scene_audio.append(audio_path)
         scene_meta.append(metadata_path)
         durations.append(duration)
+        narration_parts.append(text)
 
         if on_progress is not None:
             on_progress((idx + 1) / total)
@@ -130,4 +134,5 @@ async def synthesize_narration(
         audio_path=voiceover_path,
         metadata_path=merged_path,
         durations=durations,
+        narration_text=" ".join(narration_parts),
     )

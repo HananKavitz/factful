@@ -127,6 +127,27 @@ class TestSynthesizeNarration:
         starts = [start for _, start in captured["segments"]]
         assert starts == [0.0, 4.0]
 
+    async def test_returns_combined_narration_text(self, tmp_path: Path) -> None:
+        """RED: the punctuated narration is preserved for subtitle alignment."""
+
+        async def fake_tts(text: str, path: Path, **kwargs: object) -> tuple[Path, Path]:
+            _touch(path)
+            return path, path.with_suffix(".jsonl")
+
+        track = await synthesize_narration(
+            [_scene("First."), _scene("Second, done.")],
+            tmp_path,
+            voice="v",
+            rate="-15%",
+            pitch="-5Hz",
+            tts=fake_tts,
+            probe=lambda p: 5.0,
+            concat=lambda paths, out: _touch(out),
+            merge=lambda segments, out: _touch(out),
+        )
+
+        assert track.narration_text == "First. Second, done."
+
     async def test_empty_script_raises(self, tmp_path: Path) -> None:
         """RED: an empty scene list is a hard error."""
         with pytest.raises(TTSGenerationError, match="empty script"):

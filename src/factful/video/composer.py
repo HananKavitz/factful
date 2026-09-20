@@ -575,6 +575,7 @@ def _encode_with_ffmpeg(
     output_path: Path,
     metadata_path: Path | None = None,
     *,
+    narration_text: str | None = None,
     width: int = 1920,
     height: int = 1080,
     fps: int = 30,
@@ -644,7 +645,7 @@ def _encode_with_ffmpeg(
     # --- Subtitles ---
     subtitle_path: Path | None = None
     if metadata_path and metadata_path.exists():
-        vtt = build_vtt(metadata_path)
+        vtt = build_vtt(metadata_path, narration_text)
         if vtt:
             subtitle_path = output_path.with_suffix(".vtt")
             subtitle_path.write_text(vtt, encoding="utf-8")
@@ -662,6 +663,7 @@ def compose_final_video(
     metadata_path: Path | None = None,
     music_path: Path | None = None,
     *,
+    narration_text: str | None = None,
     width: int = 1920,
     height: int = 1080,
     fps: int = 30,
@@ -680,6 +682,7 @@ def compose_final_video(
         output_path: Where to write the final MP4.
         metadata_path: Optional edge-tts JSONL for subtitle generation.
         music_path: Optional background music file.
+        narration_text: Original punctuated narration for subtitle alignment.
         width: Output video width (default 1920).
         height: Output video height (default 1080).
         fps: Output frame rate (default 30).
@@ -709,6 +712,7 @@ def compose_final_video(
             audio_path=audio_path,
             output_path=output_path,
             metadata_path=metadata_path,
+            narration_text=narration_text,
             width=width,
             height=height,
             fps=fps,
@@ -874,7 +878,7 @@ def compose_final_video(
     # --- Subtitles ---
     subtitle_path_mp: Path | None = None
     if metadata_path and metadata_path.exists():
-        vtt = build_vtt(metadata_path)
+        vtt = build_vtt(metadata_path, narration_text)
         if vtt:
             subtitle_path_mp = output_path.with_suffix(".vtt")
             subtitle_path_mp.write_text(vtt, encoding="utf-8")
