@@ -202,6 +202,9 @@ class TestHybridGeneratorGenerate:
 
         mock_narration = AsyncMock(return_value=_track(tmp_path, [10.0] * 6))
         mock_compose = MagicMock(return_value=(tmp_path / "final.mp4", tmp_path / "final.vtt"))
+        placeholder = tmp_path / "placeholder.mp4"
+        placeholder.write_bytes(b"mp4")
+        mock_placeholder = MagicMock(return_value=placeholder)
 
         gen = HybridGenerator(
             ai_access_key="ak",
@@ -209,6 +212,7 @@ class TestHybridGeneratorGenerate:
             ai_budget_seconds=budget,
             _http_client=mock_http,
             _narration=mock_narration,
+            _placeholder=mock_placeholder,
             _compose=mock_compose,
             _trim=MagicMock(),
         )
@@ -222,6 +226,8 @@ class TestHybridGeneratorGenerate:
         assert isinstance(output, VideoOutput)
         # Budget of 30s / 10s per scene → at most 3 Kling submissions.
         assert mock_http.post.call_count == 3
+        # The three over-budget scenes fall back to hermetic placeholders.
+        assert mock_placeholder.call_count == 3
 
     async def test_placeholder_when_stock_and_ai_fail(self, tmp_path: Path) -> None:
         """RED: a scene with no stock and no AI still gets a placeholder."""
