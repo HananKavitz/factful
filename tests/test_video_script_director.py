@@ -177,6 +177,19 @@ class TestScriptDirectorAnalyze:
         assert SAMPLE_TITLE in client.last_prompt
         assert SAMPLE_MARKDOWN in client.last_prompt
 
+    def test_prompt_requires_full_article_coverage(self) -> None:
+        """RED: the prompt must demand end-to-end coverage so the model
+        cannot stop before the article's final paragraph."""
+        client = _FakeClient(_sample_script())
+        director = ScriptDirector(client=client)
+
+        director.analyze(markdown=SAMPLE_MARKDOWN, title=SAMPLE_TITLE)
+
+        prompt = (client.last_prompt or "").lower()
+        assert "entire article" in prompt
+        assert "in order" in prompt
+        assert "final paragraph" in prompt
+
     def test_passes_script_out_schema(self) -> None:
         """RED: the director requests ScriptOut as the schema."""
         client = _FakeClient(_sample_script())
