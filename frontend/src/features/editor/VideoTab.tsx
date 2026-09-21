@@ -15,8 +15,8 @@ function stageDisplayName(stage: string | null): string {
 }
 
 function ProgressBar({ value, stage }: { value: number | null; stage: string | null }) {
-  const pct = value ?? 0;
   const isIndeterminate = value === null;
+  const pct = Math.max(0, Math.min(100, value ?? 0));
   return (
     <div className="w-full">
       <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
@@ -30,12 +30,18 @@ function ProgressBar({ value, stage }: { value: number | null; stage: string | n
         aria-valuemin={0}
         aria-valuemax={100}
       >
-        <div
-          className={`h-full rounded-full bg-cyan-600 transition-all duration-500 ease-out ${
-            isIndeterminate ? "w-1/2 animate-pulse" : ""
-          }`}
-          style={isIndeterminate ? undefined : { width: `${pct}%` }}
-        />
+        {isIndeterminate ? (
+          <div
+            key="indeterminate"
+            className="h-full w-1/3 animate-pulse rounded-full bg-cyan-600"
+          />
+        ) : (
+          <div
+            key="determinate"
+            className="h-full rounded-full bg-cyan-600 transition-all duration-500 ease-out"
+            style={{ width: `${pct}%` }}
+          />
+        )}
       </div>
     </div>
   );

@@ -98,6 +98,20 @@ describe("VideoTab", () => {
     expect(screen.getByRole("progressbar")).toBeInTheDocument();
   });
 
+  it("clamps an out-of-range progress value to the 0-100 range", () => {
+    render(
+      <VideoTab
+        {...defaultProps}
+        isRendering={true}
+        videoProgress={140}
+        videoStage="encoding"
+      />,
+    );
+
+    expect(screen.getByText("100%")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
+  });
+
   it("shows the video player when playable videos exist", () => {
     render(
       <VideoTab

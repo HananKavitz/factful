@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import time
+import types
 from pathlib import Path
 from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
 
 from factful.api.app import create_app
+from factful.api.stories import _render_video_job
+from factful.db import build_engine, init_db, session_factory
 from factful.generation import GenerationRequest
-from factful.models import Story
+from factful.jobstore import JobRecord
+from factful.models import Story, User
 from factful.video.interfaces import VideoOutput
 from factful.video.service import VideoService
 
@@ -185,3 +189,77 @@ class TestVideoEndpoint:
         result = _wait_for_job(client, job_id)
         assert result["status"] == "done"
         # Subtitles are not generated in the mock
+
+
+_PROGRESS_STAGES: list[tuple[str, float]] = [
+    ("script_director", 0.0),
+    ("tts", 1.0),
+    ("fetching_clips", 1.0),
+    ("composing", 0.0),
+    ("composing_clips", 1.0),
+    ("mixing_audio", 1.0),
+    ("concatenating", 1.0),
+    ("composing", 1.0),
+    ("encoding", 1.0),
+    ("finalizing", 1.0),
+]
+
+
+class _ProgressEmittingService(VideoService):
+    """Emits the real stage sequence so job progress can be asserted."""
+
+    def __init__(self, record: JobRecord) -> None:
+        super().__init__(settings=MagicMock(), generators={}, script_director=MagicMock())  # type: ignore[arg-type]
+        self._record = record
+        self.percentages: list[int] = []
+
+    def generate_video(self, *args: object, **kwargs: object) -> VideoOutput:
+        on_progress = kwargs["on_progress"]
+        assert callable(on_progress)
+        for stage, fraction in _PROGRESS_STAGES:
+            on_progress(stage, fraction)
+            snapshot = self._record.snapshot()
+            assert isinstance(snapshot["progress"], int)
+            self.percentages.append(snapshot["progress"])
+        return VideoOutput(
+            video_path=Path("/fake/output.mp4"),
+            subtitle_path=None,
+            duration_seconds=30.0,
+            resolution="1920x1080",
+            file_size_bytes=12345,
+        )
+
+
+def test_render_video_job_progress_is_monotonic_zero_to_hundred() -> None:
+    """RED: job progress must climb from 0 to 100 without regressing."""
+    engine = build_engine("sqlite:///:memory:")
+    init_db(engine)
+    sessions = session_factory(engine)
+    with sessions() as db:
+        user = User(google_sub="sub", email="a@example.com", name="Alice")
+        db.add(user)
+        db.commit()
+        story = Story(
+            user_id=user.id,
+            prompt="Prompt",
+            angle="Angle",
+            title="Title",
+            markdown="# Title\n\nBody.",
+            score=90.0,
+            report="{}",
+        )
+        db.add(story)
+        db.commit()
+        db.refresh(story)
+        story_id = story.id
+
+    record = JobRecord("job-progress")
+    service = _ProgressEmittingService(record)
+    request = types.SimpleNamespace(
+        app=types.SimpleNamespace(state=types.SimpleNamespace(video_service=service))
+    )
+    _render_video_job(record, story_id, "voice", sessions, request)  # type: ignore[arg-type]
+
+    assert service.percentages[0] == 0
+    assert service.percentages == sorted(service.percentages)
+    assert service.percentages[-1] == 100

@@ -244,6 +244,8 @@ class VideoService:
         try:
             # Run the Script Director once here so the script can be saved
             # and shared with the generator instead of being discarded.
+            if on_progress is not None:
+                on_progress("script_director", 0.0)
             script = self._director.analyze(
                 markdown=story.markdown or "",
                 title=story.title or "",
