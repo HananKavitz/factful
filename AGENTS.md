@@ -51,6 +51,21 @@ uv run uvicorn factful.api:app --reload   # backend API (port 8000)
 cd frontend && npm run dev                # frontend dev server (proxies /api -> 8000)
 ```
 
+> **Windows host note — blocked `mypy` (Application Control).** On this dev
+> machine a Windows Application Control policy blocks the mypy DLL, so
+> `uv run mypy -p factful` (and `uv run python -m mypy`) fail with
+> `An Application Control policy has blocked this file` or
+> `DLL load failed while importing mypy`. Work around it by running mypy from
+> an isolated `uvx` install, pointed at the project interpreter so it still
+> sees the project's dependencies and `pyproject.toml` config:
+> ```sh
+> uvx --from mypy mypy -p factful --python-executable .venv/Scripts/python.exe
+> ```
+> This is a host policy quirk, not a code problem. CI runs on
+> `ubuntu-latest`, where the canonical `uv run mypy -p factful` works
+> unchanged. The same policy can block other spawned entry points (e.g.
+> `uv run pytest`); `uv run python -m pytest` is the fallback there.
+
 ### Database migrations (Alembic)
 
 Schema is managed with Alembic (`migrations/`, `alembic.ini`). `init_db` runs
