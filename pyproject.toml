@@ -33,6 +33,7 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.5",
     "types-PyYAML>=6.0",
+    "watchfiles>=1.2.0",
 ]
 
 [build-system]
