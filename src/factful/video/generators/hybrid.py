@@ -44,6 +44,7 @@ from factful.video.interfaces import (
     VideoRequest,
     VideoScript,
 )
+from factful.video.music import MusicSelector, select_music
 from factful.video.narration import synthesize_narration
 from factful.video.rankers import ClipRanker, NoOpRanker, PexelsCandidate
 from factful.video.script_director import ScriptDirector
@@ -78,6 +79,9 @@ class HybridGenerator(VideoGenerator):
         _trim: Optional injected clip trim/loop callable (for tests).
         ranker: Clip ranker for Pexels results (default: keep Pexels order).
         clip_rank_max_candidates: How many Pexels results to send to the ranker.
+        music_selector: Optional background-music selector (Openverse, CC0).
+        music_enabled: Whether to add background music at all.
+        music_volume: Background-music gain (0.0-1.0).
     """
 
     def __init__(
@@ -103,6 +107,9 @@ class HybridGenerator(VideoGenerator):
         _trim: Callable[..., Any] | None = None,
         ranker: ClipRanker | None = None,
         clip_rank_max_candidates: int = _DEFAULT_MAX_RANK_CANDIDATES,
+        music_selector: MusicSelector | None = None,
+        music_enabled: bool = True,
+        music_volume: float = 0.15,
     ) -> None:
         self._director = script_director
         self._pexels_api_key = pexels_api_key
@@ -124,6 +131,9 @@ class HybridGenerator(VideoGenerator):
         self._trim = _trim or trim_or_loop_clip
         self._ranker = ranker or NoOpRanker()
         self._clip_rank_max_candidates = clip_rank_max_candidates
+        self._music_selector = music_selector
+        self._music_enabled = music_enabled
+        self._music_volume = music_volume
 
     # ------------------------------------------------------------------
     # VideoGenerator protocol
@@ -233,6 +243,13 @@ class HybridGenerator(VideoGenerator):
         if on_progress is not None:
             on_progress("composing", 0.0)
 
+        music_path = select_music(
+            self._music_selector,
+            enabled=self._music_enabled,
+            mood=script.music_mood,
+            dest_dir=workdir,
+        )
+
         try:
             video_path, subtitle_path = self._compose(
                 clip_paths=clip_paths,
@@ -243,6 +260,8 @@ class HybridGenerator(VideoGenerator):
                 width=self._width,
                 height=self._height,
                 fps=self._fps,
+                music_path=music_path,
+                music_volume=self._music_volume,
                 cancel_check=cancel_check,
                 on_progress=on_progress,
             )

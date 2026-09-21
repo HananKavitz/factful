@@ -169,3 +169,94 @@ class TestEncodeConcatFilter:
         cmd = captured["cmd"]
         filter_complex = cmd[cmd.index("-filter_complex") + 1]
         assert "fps=25" in filter_complex
+
+    def test_music_input_is_looped_and_mixed_without_normalizing(
+        self, tmp_path: Path, monkeypatch: object
+    ) -> None:
+        """RED: a short track must loop, and amix must not attenuate the voiceover."""
+        captured: dict[str, list[str]] = {}
+
+        monkeypatch.setattr(composer, "_get_ffmpeg", lambda: "ffmpeg")  # type: ignore[attr-defined]
+        monkeypatch.setattr(composer, "probe_duration", lambda p, b=None: 5.0)  # type: ignore[attr-defined]
+
+        def _fake_run(cmd: list[str], total_duration: float, label: str, **kwargs: object) -> None:
+            captured["cmd"] = cmd
+
+        monkeypatch.setattr(composer, "_run_ffmpeg", _fake_run)  # type: ignore[attr-defined]
+
+        clip = tmp_path / "clip.mp4"
+        clip.write_bytes(b"x")
+        audio = tmp_path / "audio.wav"
+        audio.write_bytes(b"x")
+        music = tmp_path / "music.mp3"
+        music.write_bytes(b"x")
+
+        composer._encode_concat_filter(
+            [clip],
+            audio,
+            tmp_path / "out.mp4",
+            music_path=music,
+            music_volume=0.2,
+        )
+
+        cmd = captured["cmd"]
+        music_idx = cmd.index(str(music))
+        assert cmd[music_idx - 3 : music_idx] == ["-stream_loop", "-1", "-i"]
+        filter_complex = cmd[cmd.index("-filter_complex") + 1]
+        assert "normalize=0" in filter_complex
+        assert "volume=0.2" in filter_complex
+
+
+class TestEncodeWithFFmpegMusic:
+    def _patch(self, monkeypatch: object, audio_seconds: float) -> dict[str, object]:
+        calls: dict[str, object] = {}
+
+        monkeypatch.setattr(composer, "_get_ffmpeg", lambda: "ffmpeg")  # type: ignore[attr-defined]
+        monkeypatch.setattr(composer, "_clips_compatible_for_copy", lambda *a, **k: True)  # type: ignore[attr-defined]
+
+        def _probe(p: Path, b: str | None = None) -> float:
+            return audio_seconds if p.name == "audio.wav" else 5.0
+
+        monkeypatch.setattr(composer, "probe_duration", _probe)  # type: ignore[attr-defined]
+
+        def _fake_stream(*a: object, **k: object) -> float:
+            calls["stream"] = True
+            return 5.0
+
+        def _fake_concat(*a: object, **k: object) -> float:
+            calls["concat"] = k
+            return 5.0
+
+        monkeypatch.setattr(composer, "_encode_stream_copy", _fake_stream)  # type: ignore[attr-defined]
+        monkeypatch.setattr(composer, "_encode_concat_filter", _fake_concat)  # type: ignore[attr-defined]
+        return calls
+
+    def test_music_forces_concat_filter_over_stream_copy(
+        self, tmp_path: Path, monkeypatch: object
+    ) -> None:
+        """RED: the stream-copy path drops music, so music must force the concat filter."""
+        calls = self._patch(monkeypatch, audio_seconds=3.0)
+        clip = tmp_path / "clip.mp4"
+        clip.write_bytes(b"x")
+        audio = tmp_path / "audio.wav"
+        audio.write_bytes(b"x")
+        music = tmp_path / "music.mp3"
+        music.write_bytes(b"x")
+
+        composer._encode_with_ffmpeg([clip], audio, tmp_path / "out.mp4", music_path=music)
+
+        assert "stream" not in calls
+        assert calls["concat"]["music_path"] == music  # type: ignore[index]
+
+    def test_no_music_still_uses_stream_copy(self, tmp_path: Path, monkeypatch: object) -> None:
+        """RED: without music the fast stream-copy path is preserved."""
+        calls = self._patch(monkeypatch, audio_seconds=3.0)
+        clip = tmp_path / "clip.mp4"
+        clip.write_bytes(b"x")
+        audio = tmp_path / "audio.wav"
+        audio.write_bytes(b"x")
+
+        composer._encode_with_ffmpeg([clip], audio, tmp_path / "out.mp4")
+
+        assert calls.get("stream") is True
+        assert "concat" not in calls

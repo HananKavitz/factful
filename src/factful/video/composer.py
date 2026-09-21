@@ -520,7 +520,7 @@ def _encode_concat_filter(
         filters.append(f"[{audio_idx}:a]adelay=0|0[a_tts]")
         filters.append(f"[{audio_idx + 1}:a]volume={music_volume}[a_music]")
         filters.append(
-            "[a_tts][a_music]amix=inputs=2:duration=first,"
+            "[a_tts][a_music]amix=inputs=2:duration=first:normalize=0,"
             "aformat=sample_rates=44100:channel_layouts=stereo[outa]"
         )
     else:
@@ -533,7 +533,7 @@ def _encode_concat_filter(
         cmd.extend(["-i", str(p)])
     cmd.extend(["-i", str(audio_path)])
     if has_music:
-        cmd.extend(["-i", str(music_path)])
+        cmd.extend(["-stream_loop", "-1", "-i", str(music_path)])
     cmd.extend(["-filter_complex", filter_complex])
     cmd.extend(["-map", video_label, "-map", "[outa]"])
     cmd.extend(["-c:v", "libx264", "-preset", "ultrafast", "-b:v", bitrate])
@@ -619,7 +619,7 @@ def _encode_with_ffmpeg(
             cancel_check=cancel_check,
             on_progress=on_progress,
         )
-    elif _clips_compatible_for_copy(clip_paths, ffmpeg, width, height):
+    elif music_path is None and _clips_compatible_for_copy(clip_paths, ffmpeg, width, height):
         _encode_stream_copy(
             clip_paths,
             audio_path,

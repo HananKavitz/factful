@@ -41,6 +41,7 @@ from factful.video.interfaces import (
     VideoRequest,
     VideoScript,
 )
+from factful.video.music import MusicSelector, select_music
 from factful.video.narration import synthesize_narration
 from factful.video.script_director import ScriptDirector
 
@@ -90,6 +91,9 @@ class AiGenerator(VideoGenerator):
         _placeholder: Optional injected placeholder maker (for tests).
         _compose: Optional injected compose callable (for tests).
         _trim: Optional injected clip trim/loop callable (for tests).
+        music_selector: Optional background-music selector (Openverse, CC0).
+        music_enabled: Whether to add background music at all.
+        music_volume: Background-music gain (0.0-1.0).
     """
 
     def __init__(
@@ -111,6 +115,9 @@ class AiGenerator(VideoGenerator):
         _placeholder: Callable[..., Any] | None = None,
         _compose: Callable[..., Any] | None = None,
         _trim: Callable[..., Any] | None = None,
+        music_selector: MusicSelector | None = None,
+        music_enabled: bool = True,
+        music_volume: float = 0.15,
     ) -> None:
         self._access_key = access_key
         self._secret_key = secret_key
@@ -128,6 +135,9 @@ class AiGenerator(VideoGenerator):
         self._placeholder = _placeholder or make_placeholder_clip
         self._compose = _compose or compose_final_video
         self._trim = _trim or trim_or_loop_clip
+        self._music_selector = music_selector
+        self._music_enabled = music_enabled
+        self._music_volume = music_volume
 
     # ------------------------------------------------------------------
     # VideoGenerator protocol
@@ -213,6 +223,13 @@ class AiGenerator(VideoGenerator):
         if on_progress is not None:
             on_progress("composing", 0.0)
 
+        music_path = select_music(
+            self._music_selector,
+            enabled=self._music_enabled,
+            mood=script.music_mood,
+            dest_dir=workdir,
+        )
+
         try:
             video_path, subtitle_path = self._compose(
                 clip_paths=clip_paths,
@@ -223,6 +240,8 @@ class AiGenerator(VideoGenerator):
                 width=self._width,
                 height=self._height,
                 fps=self._fps,
+                music_path=music_path,
+                music_volume=self._music_volume,
                 cancel_check=cancel_check,
                 on_progress=on_progress,
             )

@@ -28,6 +28,7 @@ from factful.video.interfaces import (
     VideoRequest,
     VideoScript,
 )
+from factful.video.music import MusicSelector
 from factful.video.rankers import ClipRanker, LlmVisionRanker, NoOpRanker
 from factful.video.script_director import ScriptDirector
 from factful.video.settings import VideoSettings
@@ -97,6 +98,14 @@ def build_video_service(
     else:
         ranker = NoOpRanker()
 
+    # Build the background-music selector (Openverse, CC0, anonymous)
+    music_selector = MusicSelector(
+        license_id=settings.music_license,
+        min_duration_seconds=settings.music_min_duration_seconds,
+        max_duration_seconds=settings.music_max_duration_seconds,
+        max_candidates=settings.music_max_candidates,
+    )
+
     # Build the stock generator
     pexels_api_key = env.get(settings.stock_api_key_env, "")
     stock_generator = StockGenerator(
@@ -110,6 +119,9 @@ def build_video_service(
         tts_pitch=settings.tts_pitch,
         ranker=ranker,
         clip_rank_max_candidates=settings.clip_rank_max_candidates,
+        music_selector=music_selector,
+        music_enabled=settings.music_enabled,
+        music_volume=settings.music_volume,
     )
 
     # Build the AI generator
@@ -127,6 +139,9 @@ def build_video_service(
         tts_pitch=settings.tts_pitch,
         model=settings.ai_model,
         clip_duration_seconds=settings.ai_clip_duration_seconds,
+        music_selector=music_selector,
+        music_enabled=settings.music_enabled,
+        music_volume=settings.music_volume,
     )
 
     # Build the hybrid generator
@@ -146,6 +161,9 @@ def build_video_service(
         clip_duration_seconds=settings.ai_clip_duration_seconds,
         ranker=ranker,
         clip_rank_max_candidates=settings.clip_rank_max_candidates,
+        music_selector=music_selector,
+        music_enabled=settings.music_enabled,
+        music_volume=settings.music_volume,
     )
 
     # Registry of available strategies

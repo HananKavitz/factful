@@ -23,6 +23,10 @@ class VideoSourceError(VideoGenerationError):
     """Raised when an external video source (Pexels, Kling) returns an error."""
 
 
+class MusicSourceError(VideoSourceError):
+    """Raised when a background music source (Openverse) returns an error."""
+
+
 class CompositionError(VideoGenerationError):
     """Raised when video composition (moviepy/FFmpeg) fails."""
 

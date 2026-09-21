@@ -15,7 +15,9 @@ from factful.video.interfaces import (
     VideoRequest,
     VideoScript,
 )
-from factful.video.service import VideoService
+from factful.video.music import MusicSelector
+from factful.video.service import VideoService, build_video_service
+from factful.video.settings import VideoSettings
 
 
 class _FakeGenerator:
@@ -142,3 +144,24 @@ class _FakeDirector:
 class _FakeSettings:
     def __init__(self, default_strategy: str) -> None:
         self.default_strategy = default_strategy
+
+
+class TestBuildVideoServiceMusicWiring:
+    """The factory threads the music settings into every generator."""
+
+    def test_wires_music_selector_into_all_generators(self) -> None:
+        """RED: all strategies must receive the selector, flag, and volume."""
+        settings = VideoSettings(music_enabled=True, music_volume=0.42)
+
+        service = build_video_service(
+            settings=settings,
+            env={},
+            llm_api_key="test-key",
+            llm_base_url="https://example.test/v1",
+        )
+
+        assert set(service._generators) == {"stock", "ai", "hybrid"}
+        for name, generator in service._generators.items():
+            assert isinstance(generator._music_selector, MusicSelector), name
+            assert generator._music_enabled is True, name
+            assert generator._music_volume == 0.42, name

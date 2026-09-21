@@ -76,3 +76,7 @@ class VideoSettings(BaseModel):
     # --- Music ---
     music_enabled: bool = Field(default=True)
     music_volume: float = Field(default=0.15, ge=0.0, le=1.0)
+    music_license: str = Field(default="cc0", pattern="^cc0$")
+    music_min_duration_seconds: int = Field(default=120, ge=1)
+    music_max_duration_seconds: int = Field(default=300, ge=1)
+    music_max_candidates: int = Field(default=20, ge=1, le=20)

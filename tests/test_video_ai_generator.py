@@ -13,6 +13,7 @@ import pytest
 from factful.video.exceptions import NoUsableClipsError, VideoSourceError
 from factful.video.generators.ai import AiGenerator
 from factful.video.interfaces import VideoOutput, VideoRequest, VideoScript
+from factful.video.music import MusicSelector, MusicTrack
 from factful.video.narration import NarrationTrack
 from factful.video.script_director import SceneOut
 
@@ -347,3 +348,55 @@ class TestAiGeneratorGenerate:
                 tmp_path / "final.mp4",
                 script=script,
             )
+
+
+class TestAiGeneratorMusic:
+    """Background music is resolved from the script mood and forwarded to compose."""
+
+    def _track(self, tmp_path: Path) -> NarrationTrack:
+        audio = tmp_path / "voiceover.wav"
+        audio.write_bytes(b"wav")
+        meta = tmp_path / "voiceover.jsonl"
+        meta.write_text("", encoding="utf-8")
+        return NarrationTrack(audio_path=audio, metadata_path=meta, durations=[5.0])
+
+    async def test_forwards_music_to_compose(self, tmp_path: Path) -> None:
+        """RED: an enabled selector's track is passed to the composer."""
+        scene = SceneOut(
+            narration="Quantum computers are amazing.",
+            visual_keywords=["quantum"],
+            shot_type="close_up",
+            duration_seconds=5,
+            need_ai_generation=True,
+            ai_confidence=0.95,
+        )
+        script = VideoScript(scenes=[scene], music_mood="urgent", overall_pace="moderate")
+
+        music_file = tmp_path / "music.mp3"
+        music_file.write_bytes(b"m")
+        selector = MagicMock(spec=MusicSelector)
+        selector.select.return_value = MusicTrack(
+            path=music_file, title="T", creator="C", license="cc0", source_url="u"
+        )
+        mock_compose = MagicMock(return_value=(tmp_path / "final.mp4", None))
+
+        gen = AiGenerator(
+            access_key="key",
+            secret_key="secret",
+            _narration=AsyncMock(return_value=self._track(tmp_path)),
+            _compose=mock_compose,
+            _trim=MagicMock(),
+            music_selector=selector,
+            music_volume=0.3,
+        )
+        gen._fetch_scene_clip = AsyncMock(return_value=tmp_path / "clip.mp4")  # type: ignore[method-assign]
+
+        await gen.generate(
+            VideoRequest(markdown=SAMPLE_MARKDOWN, title=SAMPLE_TITLE),
+            tmp_path / "final.mp4",
+            script=script,
+        )
+
+        kwargs = mock_compose.call_args.kwargs
+        assert kwargs["music_path"] == music_file
+        assert kwargs["music_volume"] == 0.3

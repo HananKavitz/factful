@@ -12,6 +12,7 @@ import pytest
 from factful.video.exceptions import NoUsableClipsError
 from factful.video.generators.hybrid import HybridGenerator
 from factful.video.interfaces import VideoOutput, VideoRequest, VideoScript
+from factful.video.music import MusicSelector, MusicTrack
 from factful.video.narration import NarrationTrack
 from factful.video.script_director import SceneOut
 
@@ -419,3 +420,46 @@ class TestHybridStockRetry:
         result = gen._try_fetch_stock_clip(scene, 0, tmp_path, 5.0, set(), set(), "Title")
 
         assert result == trimmed
+
+
+class TestHybridGeneratorMusic:
+    """Background music is resolved from the script mood and forwarded to compose."""
+
+    async def test_forwards_music_to_compose(self, tmp_path: Path) -> None:
+        """RED: an enabled selector's track is passed to the composer."""
+        scene = SceneOut(
+            narration="A beautiful sunset.",
+            visual_keywords=["sunset"],
+            shot_type="wide",
+            duration_seconds=5,
+            need_ai_generation=False,
+            ai_confidence=0.0,
+        )
+        script = VideoScript(scenes=[scene], music_mood="calm", overall_pace="moderate")
+
+        music_file = tmp_path / "music.mp3"
+        music_file.write_bytes(b"m")
+        selector = MagicMock(spec=MusicSelector)
+        selector.select.return_value = MusicTrack(
+            path=music_file, title="T", creator="C", license="cc0", source_url="u"
+        )
+        mock_compose = MagicMock(return_value=(tmp_path / "final.mp4", None))
+
+        gen = HybridGenerator(
+            _narration=AsyncMock(return_value=_track(tmp_path, [5.0])),
+            _compose=mock_compose,
+            _trim=MagicMock(),
+            music_selector=selector,
+            music_volume=0.2,
+        )
+        gen._try_fetch_stock_clip = MagicMock(return_value=tmp_path / "clip.mp4")  # type: ignore[method-assign]
+
+        await gen.generate(
+            VideoRequest(markdown=SAMPLE_MARKDOWN, title=SAMPLE_TITLE),
+            tmp_path / "final.mp4",
+            script=script,
+        )
+
+        kwargs = mock_compose.call_args.kwargs
+        assert kwargs["music_path"] == music_file
+        assert kwargs["music_volume"] == 0.2

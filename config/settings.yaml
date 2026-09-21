@@ -61,6 +61,11 @@ video:
   clip_rank_max_candidates: 6
   clip_rank_min_score: 0.4
   hybrid_ai_budget_seconds: 30
+  # --- Music ---
   music_enabled: true
   music_volume: 0.15
+  music_license: cc0
+  music_min_duration_seconds: 120
+  music_max_duration_seconds: 300
+  music_max_candidates: 20
 
