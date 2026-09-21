@@ -10,7 +10,11 @@ import httpx
 import pytest
 
 from factful.video.exceptions import NoUsableClipsError, VideoSourceError
-from factful.video.generators.stock import StockGenerator
+from factful.video.generators.stock import (
+    PEXELS_PER_PAGE,
+    StockGenerator,
+    preferred_candidates,
+)
 from factful.video.interfaces import VideoOutput, VideoRequest, VideoScript
 from factful.video.music import MusicSelector, MusicTrack
 from factful.video.narration import NarrationTrack
@@ -141,7 +145,7 @@ class TestStockGeneratorSearch:
         _call_kwargs = mock_client.get.call_args.kwargs or {}
         params = _call_kwargs.get("params", {})
         assert "city" in params.get("query", "") and "skyline" in params.get("query", "")
-        assert params.get("per_page") == 15
+        assert params.get("per_page") == PEXELS_PER_PAGE
         assert params.get("page") == 1
         assert params.get("orientation") == "landscape"
         assert params.get("size") == "medium"
@@ -745,3 +749,110 @@ class TestStockGeneratorMusic:
         mock_compose = await self._run(tmp_path, music_selector=selector, music_enabled=False)
 
         assert mock_compose.call_args.kwargs["music_path"] is None
+
+
+class TestPexelsSearchPool:
+    """Relevance lives on page 1, so the pool is widened instead of paged."""
+
+    def test_search_always_requests_the_first_page(self) -> None:
+        """RED: every scene search must stay on page 1 (relevance order)."""
+        mock_client = MagicMock(spec=httpx.Client)
+        search_resp = MagicMock(spec=httpx.Response)
+        search_resp.status_code = 200
+        search_resp.json.return_value = _pexels_response_json(total_results=2)
+        mock_client.get.return_value = search_resp
+
+        gen = StockGenerator(
+            pexels_api_key="key",
+            script_director=MagicMock(),
+            _http_client=mock_client,
+        )
+
+        gen._search_pexels("city skyline")
+
+        params = mock_client.get.call_args.kwargs["params"]
+        assert params["page"] == 1
+        assert params["per_page"] == PEXELS_PER_PAGE
+
+    def test_candidate_pool_is_wider_than_legacy_fifteen(self) -> None:
+        """RED: a wider page-1 pool supplies fresh candidates without paging."""
+        assert PEXELS_PER_PAGE > 15
+
+
+def _candidate(video_id: int | None, *links: str) -> Any:
+    from factful.video.rankers import PexelsCandidate
+
+    return PexelsCandidate(video_id=video_id, thumbnail_url=None, links=tuple(links))
+
+
+class TestPexelsVideoDedup:
+    """Dedup is by video id and is a preference, never a black-screen gate."""
+
+    def test_unused_videos_are_preferred_in_ranked_order(self) -> None:
+        """RED: candidates whose video id was already used move behind fresh ones."""
+        ranked = [_candidate(1, "u1"), _candidate(2, "u2"), _candidate(3, "u3")]
+
+        ordered = preferred_candidates(ranked, {1})
+
+        assert [c.video_id for c in ordered] == [2, 3]
+
+    def test_dedup_ignores_file_urls_of_the_same_video(self) -> None:
+        """RED: a second resolution link must not resurrect a used video."""
+        ranked = [_candidate(7, "1080p", "4k"), _candidate(8, "other")]
+
+        ordered = preferred_candidates(ranked, {7})
+
+        assert [c.video_id for c in ordered] == [8]
+
+    def test_used_videos_are_reused_rather_than_skipped(self) -> None:
+        """RED: when every candidate was used, reuse the best instead of black."""
+        ranked = [_candidate(1, "u1"), _candidate(2, "u2")]
+
+        ordered = preferred_candidates(ranked, {1, 2})
+
+        assert [c.video_id for c in ordered] == [1, 2]
+
+    def test_untracked_videos_are_always_fresh(self) -> None:
+        """RED: a candidate without an id cannot be deduped, so keep it."""
+        ranked = [_candidate(None, "u1")]
+
+        assert preferred_candidates(ranked, {1, 2}) == ranked
+
+    def test_fully_used_pool_still_downloads(self, tmp_path: Path) -> None:
+        """RED: an exhausted dedup set must not produce a placeholder."""
+        search_resp = MagicMock(spec=httpx.Response)
+        search_resp.status_code = 200
+        search_resp.json.return_value = _pexels_response_json(total_results=2)
+        clip_resp = MagicMock(spec=httpx.Response)
+        type(clip_resp).content = PropertyMock(return_value=b"clip")
+
+        def _get(url: str, *args: Any, **kwargs: Any) -> Any:
+            return search_resp if "search" in url else clip_resp
+
+        mock_client = MagicMock(spec=httpx.Client)
+        mock_client.get.side_effect = _get
+
+        trimmed = tmp_path / "scene_0005_trimmed.mp4"
+        placeholder = MagicMock()
+        gen = StockGenerator(
+            pexels_api_key="key",
+            script_director=MagicMock(),
+            _http_client=mock_client,
+            _trim=MagicMock(return_value=trimmed),
+            _placeholder=placeholder,
+        )
+        scene = SceneOut(
+            narration="Ocean waves crash on the shore.",
+            visual_keywords=["ocean"],
+            shot_type="wide",
+            duration_seconds=5,
+            need_ai_generation=False,
+            ai_confidence=0.0,
+        )
+        # Every video Pexels will return (ids 1000, 1001) is already used.
+        used_ids = {1000, 1001}
+
+        result = gen._fetch_scene_clip(scene, 5, tmp_path, 5.0, used_ids, set(), "Title")
+
+        assert result == trimmed
+        placeholder.assert_not_called()

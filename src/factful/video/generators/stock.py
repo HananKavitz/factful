@@ -44,12 +44,28 @@ from factful.video.script_director import ScriptDirector
 logger = logging.getLogger(__name__)
 
 _PEXELS_API_URL = "https://api.pexels.com/videos/search"
-_DEFAULT_PER_PAGE = 15
+# Pexels relevance is highest on page 1, so fetch a wide first page instead
+# of paging deeper (pagination also silently caps out at 480 results).
+PEXELS_PER_PAGE = 30
 _DEFAULT_ORIENTATION = "landscape"
 _DEFAULT_SIZE = "medium"
 _DEFAULT_MIN_RESOLUTION_PIXELS = 1920 * 1080  # 1080p
 MAX_DOWNLOAD_ATTEMPTS = 3
-_DEFAULT_MAX_RANK_CANDIDATES = 6
+DEFAULT_MAX_RANK_CANDIDATES = 10
+
+
+def preferred_candidates(
+    ranked: list[PexelsCandidate], used_ids: set[int]
+) -> list[PexelsCandidate]:
+    """Order candidates with unseen videos first, reusing as a last resort.
+
+    Dedup is by Pexels video id, not file URL: one video exposes several
+    resolution links, so URL-based dedup would let the same footage reappear.
+    When every candidate has already been used, the ranked order is returned
+    unchanged so the scene reuses the best match instead of going black.
+    """
+    fresh = [c for c in ranked if c.video_id is None or c.video_id not in used_ids]
+    return fresh or ranked
 
 
 def _pixel_count(video: dict[str, Any]) -> int:
@@ -264,7 +280,7 @@ class StockGenerator(VideoGenerator):
         _compose: Callable[..., Any] | None = None,
         _trim: Callable[..., Any] | None = None,
         ranker: ClipRanker | None = None,
-        clip_rank_max_candidates: int = _DEFAULT_MAX_RANK_CANDIDATES,
+        clip_rank_max_candidates: int = DEFAULT_MAX_RANK_CANDIDATES,
         music_selector: MusicSelector | None = None,
         music_enabled: bool = True,
         music_volume: float = 0.15,
@@ -346,7 +362,7 @@ class StockGenerator(VideoGenerator):
             on_progress("fetching_clips", 0.0)
 
         clip_paths: list[Path] = []
-        used_urls: set[str] = set()
+        used_ids: set[int] = set()
         used_narration_words: set[str] = set()
         total_scenes = len(script.scenes)
 
@@ -371,7 +387,7 @@ class StockGenerator(VideoGenerator):
                     idx,
                     workdir,
                     narration.durations[idx],
-                    used_urls,
+                    used_ids,
                     used_narration_words,
                     request.title,
                 )
@@ -434,7 +450,7 @@ class StockGenerator(VideoGenerator):
         idx: int,
         workdir: Path,
         duration: float,
-        used_urls: set[str],
+        used_ids: set[int],
         used_narration_words: set[str],
         title: str,
     ) -> Path:
@@ -449,33 +465,35 @@ class StockGenerator(VideoGenerator):
         )
         if query:
             try:
-                candidates = self._search_pexels(query, page=idx + 1, min_results=1)
-                logger.info(
-                    "Pexels returned %d candidates for '%s' (page %d)",
-                    len(candidates),
-                    query,
-                    idx + 1,
-                )
+                candidates = self._search_pexels(query)
+                logger.info("Pexels returned %d candidates for '%s'", len(candidates), query)
             except VideoSourceError as e:
                 logger.warning("Pexels search failed for '%s': %s", query, e)
                 candidates = []
 
             ranked = self._ranker.rank(scene, candidates[: self._clip_rank_max_candidates])
-            fresh_urls = [link for c in ranked for link in c.links if link not in used_urls]
             clip_dest = workdir / f"scene_{idx:04d}.mp4"
-            for attempt, url in enumerate(fresh_urls[:MAX_DOWNLOAD_ATTEMPTS], start=1):
-                used_urls.add(url)
-                try:
-                    self._download_clip(url, clip_dest)
-                    clip_source = clip_dest
+            attempts = 0
+            for candidate in preferred_candidates(ranked, used_ids):
+                if candidate.video_id is not None:
+                    used_ids.add(candidate.video_id)
+                for url in candidate.links:
+                    if attempts >= MAX_DOWNLOAD_ATTEMPTS:
+                        break
+                    attempts += 1
+                    try:
+                        self._download_clip(url, clip_dest)
+                        clip_source = clip_dest
+                        break
+                    except VideoSourceError:
+                        logger.warning(
+                            "Failed to download clip for scene %d (attempt %d/%d)",
+                            idx,
+                            attempts,
+                            MAX_DOWNLOAD_ATTEMPTS,
+                        )
+                if clip_source is not None:
                     break
-                except VideoSourceError:
-                    logger.warning(
-                        "Failed to download clip for scene %d (attempt %d/%d)",
-                        idx,
-                        attempt,
-                        min(len(fresh_urls), MAX_DOWNLOAD_ATTEMPTS),
-                    )
         else:
             logger.info("No search terms for scene %d", idx)
 
@@ -496,22 +514,19 @@ class StockGenerator(VideoGenerator):
             logger.warning("Failed to trim/loop clip for scene %d, using raw clip", idx)
             return clip_source
 
-    def _search_pexels(
-        self, query: str, page: int = 1, min_results: int = 1
-    ) -> list[PexelsCandidate]:
-        """Search Pexels for stock video candidates.
+    def _search_pexels(self, query: str, min_results: int = 1) -> list[PexelsCandidate]:
+        """Search page 1 of Pexels for stock video candidates.
 
         Args:
             query: Search query string.
-            page: Pexels result page (used to rotate results per scene).
             min_results: Minimum number of results required.
 
         Returns candidates in Pexels relevance order, each with ranked links.
         """
         params: dict[str, Any] = {
             "query": query,
-            "per_page": _DEFAULT_PER_PAGE,
-            "page": page,
+            "per_page": PEXELS_PER_PAGE,
+            "page": 1,
             "orientation": _DEFAULT_ORIENTATION,
             "size": _DEFAULT_SIZE,
         }

@@ -165,3 +165,25 @@ class TestBuildVideoServiceMusicWiring:
             assert isinstance(generator._music_selector, MusicSelector), name
             assert generator._music_enabled is True, name
             assert generator._music_volume == 0.42, name
+
+
+class TestBuildVideoServiceSceneLimit:
+    """The factory threads the scene cap into the Script Director."""
+
+    def test_director_receives_configured_max_scenes(self) -> None:
+        """RED: max_scenes from settings must reach the ScriptDirector."""
+        settings = VideoSettings(max_scenes=12)
+
+        service = build_video_service(
+            settings=settings,
+            env={},
+            llm_api_key="test-key",
+            llm_base_url="https://example.test/v1",
+        )
+
+        assert service._director._max_scenes == 12
+
+
+def test_video_settings_default_max_scenes() -> None:
+    """RED: a default cap keeps scene counts bounded out of the box."""
+    assert VideoSettings().max_scenes == 32

@@ -27,6 +27,7 @@ Do not summarise ahead or stop early: every section must be represented,
 and the final scene must cover the article's final paragraph (including its
 conclusion, recommendations, or closing remarks). If the article is long,
 use more scenes rather than dropping content.
+{scene_limit}
 
 For each scene, provide:
 1. **narration** - the exact voiceover text (extract 1-3 sentences from the article)
@@ -52,6 +53,78 @@ Article:
 """
 
 
+def _scene_limit_instruction(max_scenes: int | None) -> str:
+    """Prompt clause that caps the scene count, or an empty string."""
+    if max_scenes is None:
+        return ""
+    return (
+        f"Produce at most {max_scenes} scenes in total. If the article is long, "
+        "make each scene cover more of the article (more sentences) rather than "
+        "exceeding this limit."
+    )
+
+
+def merge_scenes_to_limit(scenes: list[Scene], max_scenes: int) -> list[Scene]:
+    """Fuse adjacent scenes until at most *max_scenes* remain.
+
+    Full-article coverage is preserved: merging concatenates narration and
+    never drops a scene. Scenes are grouped greedily toward an even share of
+    the total duration so a shorter tail is not swallowed into one long scene.
+
+    Args:
+        scenes: Scenes in article order.
+        max_scenes: Upper bound on the returned scene count (>= 1).
+
+    Returns:
+        A new list of scenes, in order, with length <= *max_scenes*.
+
+    Raises:
+        ValueError: if *max_scenes* is less than 1.
+    """
+    if max_scenes < 1:
+        raise ValueError(f"max_scenes must be >= 1, got {max_scenes}")
+    if len(scenes) <= max_scenes:
+        return list(scenes)
+
+    target_duration = sum(scene.duration_seconds for scene in scenes) / max_scenes
+    groups: list[list[Scene]] = []
+    current: list[Scene] = []
+    current_duration = 0
+    for position, scene in enumerate(scenes):
+        current.append(scene)
+        current_duration += scene.duration_seconds
+        scenes_left = len(scenes) - position - 1
+        groups_left = max_scenes - len(groups)
+        if (
+            groups_left > 1
+            and current_duration >= target_duration
+            and scenes_left >= groups_left - 1
+        ):
+            groups.append(current)
+            current = []
+            current_duration = 0
+    if current:
+        groups.append(current)
+    return [_merge_group(group) for group in groups]
+
+
+def _merge_group(group: list[Scene]) -> Scene:
+    """Combine consecutive scenes into a single scene."""
+    keywords: list[str] = []
+    for scene in group:
+        for keyword in scene.visual_keywords:
+            if keyword not in keywords:
+                keywords.append(keyword)
+    return Scene(
+        narration=" ".join(scene.narration for scene in group),
+        visual_keywords=keywords[:8],
+        shot_type=group[0].shot_type,
+        duration_seconds=sum(scene.duration_seconds for scene in group),
+        need_ai_generation=any(scene.need_ai_generation for scene in group),
+        ai_confidence=max(scene.ai_confidence for scene in group),
+    )
+
+
 class SceneOut(BaseModel):
     narration: str = Field(min_length=1)
     visual_keywords: list[str] = Field(min_length=1, max_length=8)
@@ -73,6 +146,8 @@ class ScriptDirector:
     Args:
         client: An OpenRouterClient (or any ChatClient) configured with
             a cheap model like gpt-4o-mini.
+        max_scenes: Optional upper bound on the scene count. Over-limit
+            scripts are merged, never truncated.
         cancel_check: Optional callable returning True if cancelled.
     """
 
@@ -80,9 +155,11 @@ class ScriptDirector:
         self,
         *,
         client: ChatClient,
+        max_scenes: int | None = None,
         cancel_check: Callable[[], bool] | None = None,
     ) -> None:
         self._client = client
+        self._max_scenes = max_scenes
         self._cancel_check = cancel_check
 
     def analyze(self, markdown: str, title: str) -> VideoScript:
@@ -101,7 +178,11 @@ class ScriptDirector:
         if not markdown.strip():
             raise ScriptError("cannot analyze empty article")
 
-        prompt = _SCRIPT_DIRECTOR_PROMPT.format(title=title, markdown=markdown)
+        prompt = _SCRIPT_DIRECTOR_PROMPT.format(
+            title=title,
+            markdown=markdown,
+            scene_limit=_scene_limit_instruction(self._max_scenes),
+        )
 
         if self._cancel_check is not None and self._cancel_check():
             raise ScriptError("video generation was cancelled")
@@ -129,6 +210,9 @@ class ScriptDirector:
             )
             for s in raw.scenes
         ]
+
+        if self._max_scenes is not None:
+            scenes = merge_scenes_to_limit(scenes, self._max_scenes)
 
         return VideoScript(
             scenes=scenes,

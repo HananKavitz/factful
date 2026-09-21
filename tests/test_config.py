@@ -122,7 +122,7 @@ def test_clip_rank_defaults() -> None:
     video = Settings().video
     assert video.clip_rank_mode == "none"
     assert video.clip_rank_model == "google/gemini-2.5-flash"
-    assert video.clip_rank_max_candidates == 6
+    assert video.clip_rank_max_candidates == 10
     assert video.clip_rank_min_score == 0.4
 
 

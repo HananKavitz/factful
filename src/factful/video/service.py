@@ -82,7 +82,7 @@ def build_video_service(
         api_key=llm_api_key,
         base_url=llm_base_url,
     )
-    script_director = ScriptDirector(client=llm_client)
+    script_director = ScriptDirector(client=llm_client, max_scenes=settings.max_scenes)
 
     # Build the Pexels clip ranker
     ranker: ClipRanker

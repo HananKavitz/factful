@@ -40,6 +40,15 @@ class VideoSettings(BaseModel):
         default="openai/gpt-4o-mini",
         description="Cheap LLM for article → scene analysis (via OpenRouter).",
     )
+    max_scenes: int = Field(
+        default=32,
+        ge=1,
+        le=200,
+        description=(
+            "Maximum scenes per render; longer articles use longer scenes. "
+            "Bounds per-render provider and LLM calls."
+        ),
+    )
 
     # --- AI video generation (Kling) ---
     ai_provider: str = Field(default="kling")
@@ -63,7 +72,7 @@ class VideoSettings(BaseModel):
         default="google/gemini-2.5-flash",
         description="Vision LLM used to rerank Pexels thumbnails (via OpenRouter).",
     )
-    clip_rank_max_candidates: int = Field(default=6, ge=1, le=20)
+    clip_rank_max_candidates: int = Field(default=10, ge=1, le=20)
     clip_rank_min_score: float = Field(default=0.4, ge=0.0, le=1.0)
 
     # --- Hybrid fine-tuning ---

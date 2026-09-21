@@ -33,9 +33,12 @@ from factful.video.exceptions import (
 )
 from factful.video.generators.ai import AiGenerator
 from factful.video.generators.stock import (
+    DEFAULT_MAX_RANK_CANDIDATES,
     MAX_DOWNLOAD_ATTEMPTS,
+    PEXELS_PER_PAGE,
     build_pexels_query,
     order_pexels_candidates,
+    preferred_candidates,
 )
 from factful.video.interfaces import (
     Scene,
@@ -52,7 +55,6 @@ from factful.video.script_director import ScriptDirector
 logger = logging.getLogger(__name__)
 
 _PEXELS_API_URL = "https://api.pexels.com/videos/search"
-_DEFAULT_MAX_RANK_CANDIDATES = 6
 
 
 class HybridGenerator(VideoGenerator):
@@ -106,7 +108,7 @@ class HybridGenerator(VideoGenerator):
         _compose: Callable[..., Any] | None = None,
         _trim: Callable[..., Any] | None = None,
         ranker: ClipRanker | None = None,
-        clip_rank_max_candidates: int = _DEFAULT_MAX_RANK_CANDIDATES,
+        clip_rank_max_candidates: int = DEFAULT_MAX_RANK_CANDIDATES,
         music_selector: MusicSelector | None = None,
         music_enabled: bool = True,
         music_volume: float = 0.15,
@@ -191,7 +193,7 @@ class HybridGenerator(VideoGenerator):
             on_progress("fetching_clips", 0.0)
 
         clip_paths: list[Path] = []
-        used_urls: set[str] = set()
+        used_ids: set[int] = set()
         used_narration_words: set[str] = set()
         remaining_ai_budget: float = float(self._ai_budget)
         total_scenes = len(script.scenes)
@@ -219,7 +221,7 @@ class HybridGenerator(VideoGenerator):
                     idx,
                     workdir,
                     duration,
-                    used_urls,
+                    used_ids,
                     used_narration_words,
                     request.title,
                 )
@@ -292,7 +294,7 @@ class HybridGenerator(VideoGenerator):
         idx: int,
         workdir: Path,
         duration: float,
-        used_urls: set[str],
+        used_ids: set[int],
         used_narration_words: set[str],
         title: str = "",
     ) -> Path | None:
@@ -300,10 +302,10 @@ class HybridGenerator(VideoGenerator):
 
         Args:
             scene: A scene object with visual_keywords and narration.
-            idx: Scene index (used for pagination).
+            idx: Scene index (used for filenames and logging).
             workdir: Directory for downloaded clips.
             duration: Target duration (measured narration), in seconds.
-            used_urls: Set of already-downloaded URLs (deduplicated in-place).
+            used_ids: Set of already-used Pexels video ids (updated in-place).
             used_narration_words: Set of narration words already used in
                 earlier scenes (deduplicated in-place).
             title: Article title (prepended for topical relevance).
@@ -317,33 +319,35 @@ class HybridGenerator(VideoGenerator):
             return None
 
         try:
-            candidates = self._search_pexels(query, page=idx + 1)
+            candidates = self._search_pexels(query)
         except VideoSourceError:
             logger.warning("Pexels search failed for '%s'", query)
             return None
 
         ranked = self._ranker.rank(scene, candidates[: self._clip_rank_max_candidates])
-        plain_urls = [link for c in ranked for link in c.links]
-        if not plain_urls:
+        if not ranked:
             logger.info("No acceptable Pexels result for '%s'", query)
             return None
 
-        # Skip already-used URLs; try the best fresh candidates in order.
-        fresh_urls = [u for u in plain_urls if u not in used_urls]
-        if not fresh_urls:
-            logger.info("All Pexels results for '%s' already used — skipping", query)
-            return None
-
+        # Dedup by video id; reuse the best match if every candidate was used.
         dest = workdir / f"stock_{idx:04d}.mp4"
         downloaded = False
-        for url in fresh_urls[:MAX_DOWNLOAD_ATTEMPTS]:
-            used_urls.add(url)
-            try:
-                self._download_clip(url, dest)
-                downloaded = True
+        attempts = 0
+        for candidate in preferred_candidates(ranked, used_ids):
+            if candidate.video_id is not None:
+                used_ids.add(candidate.video_id)
+            for url in candidate.links:
+                if attempts >= MAX_DOWNLOAD_ATTEMPTS:
+                    break
+                attempts += 1
+                try:
+                    self._download_clip(url, dest)
+                    downloaded = True
+                    break
+                except VideoSourceError:
+                    logger.warning("Failed to download stock clip for scene %d from %s", idx, url)
+            if downloaded:
                 break
-            except VideoSourceError:
-                logger.warning("Failed to download stock clip for scene %d from %s", idx, url)
 
         if not downloaded:
             return None
@@ -404,19 +408,18 @@ class HybridGenerator(VideoGenerator):
 
         return dest
 
-    def _search_pexels(self, query: str, page: int = 1) -> list[PexelsCandidate]:
-        """Search Pexels for stock video candidates.
+    def _search_pexels(self, query: str) -> list[PexelsCandidate]:
+        """Search page 1 of Pexels for stock video candidates.
 
         Args:
             query: Search query string.
-            page: Pexels result page (used to rotate results per scene).
 
         Returns candidates in Pexels relevance order, each with ranked links.
         """
         params: dict[str, Any] = {
             "query": query,
-            "per_page": 5,
-            "page": page,
+            "per_page": PEXELS_PER_PAGE,
+            "page": 1,
             "orientation": "landscape",
             "size": "medium",
         }

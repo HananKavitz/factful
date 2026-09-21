@@ -8,7 +8,12 @@ from pydantic import BaseModel
 from factful.llm.client import ChatClient
 from factful.video.exceptions import ScriptError
 from factful.video.interfaces import Scene, VideoScript
-from factful.video.script_director import SceneOut, ScriptDirector, ScriptOut
+from factful.video.script_director import (
+    SceneOut,
+    ScriptDirector,
+    ScriptOut,
+    merge_scenes_to_limit,
+)
 
 
 class _FakeClient(ChatClient):
@@ -211,3 +216,128 @@ class TestScriptDirectorAnalyze:
         with pytest.raises(ScriptError, match="cancelled"):
             director.analyze(markdown=SAMPLE_MARKDOWN, title=SAMPLE_TITLE)
         assert client.last_prompt is None  # LLM should NOT have been called
+
+
+class TestScriptDirectorSceneLimit:
+    """The director honours a maximum scene count instead of over-splitting."""
+
+    def _script_with(self, count: int, duration: int = 10) -> ScriptOut:
+        return ScriptOut(
+            scenes=[
+                SceneOut(
+                    narration=f"Scene {i} narration.",
+                    visual_keywords=[f"keyword{i}"],
+                    shot_type="wide",
+                    duration_seconds=duration,
+                    need_ai_generation=False,
+                    ai_confidence=0.0,
+                )
+                for i in range(count)
+            ],
+            music_mood="neutral",
+            overall_pace="moderate",
+        )
+
+    def test_prompt_states_the_scene_limit_when_configured(self) -> None:
+        """RED: the model must be told the cap so it can pace itself."""
+        client = _FakeClient(self._script_with(2))
+        director = ScriptDirector(client=client, max_scenes=7)
+
+        director.analyze(markdown=SAMPLE_MARKDOWN, title=SAMPLE_TITLE)
+
+        assert "at most 7 scenes" in (client.last_prompt or "")
+
+    def test_prompt_omits_scene_limit_when_unset(self) -> None:
+        """RED: no cap configured means no cap text in the prompt."""
+        client = _FakeClient(self._script_with(2))
+        director = ScriptDirector(client=client)
+
+        director.analyze(markdown=SAMPLE_MARKDOWN, title=SAMPLE_TITLE)
+
+        assert "at most" not in (client.last_prompt or "").lower()
+
+    def test_scenes_over_limit_are_merged_not_dropped(self) -> None:
+        """RED: over-limit scripts keep every narration, fused into fewer scenes."""
+        client = _FakeClient(self._script_with(6, duration=10))
+        director = ScriptDirector(client=client, max_scenes=2)
+
+        result = director.analyze(markdown=SAMPLE_MARKDOWN, title=SAMPLE_TITLE)
+
+        assert len(result.scenes) <= 2
+        merged_narration = " ".join(scene.narration for scene in result.scenes)
+        for i in range(6):
+            assert f"Scene {i} narration." in merged_narration
+        assert sum(scene.duration_seconds for scene in result.scenes) == 60
+
+    def test_scenes_within_limit_are_untouched(self) -> None:
+        """RED: a script at or under the cap passes through unchanged."""
+        client = _FakeClient(self._script_with(3))
+        director = ScriptDirector(client=client, max_scenes=5)
+
+        result = director.analyze(markdown=SAMPLE_MARKDOWN, title=SAMPLE_TITLE)
+
+        assert [scene.narration for scene in result.scenes] == [
+            "Scene 0 narration.",
+            "Scene 1 narration.",
+            "Scene 2 narration.",
+        ]
+
+
+class TestMergeScenesToLimit:
+    """Pure helper: fuse adjacent scenes down to a maximum count."""
+
+    def _scene(self, idx: int, duration: int = 10) -> Scene:
+        return Scene(
+            narration=f"N{idx}.",
+            visual_keywords=[f"k{idx}"],
+            shot_type="wide",
+            duration_seconds=duration,
+        )
+
+    def test_merges_to_at_most_the_limit(self) -> None:
+        """RED: ten scenes with a limit of three must yield exactly three."""
+        merged = merge_scenes_to_limit([self._scene(i) for i in range(10)], 3)
+        assert len(merged) == 3
+
+    def test_preserves_every_narration_in_order(self) -> None:
+        """RED: merging never drops narration and keeps article order."""
+        scenes = [self._scene(i, duration=5) for i in range(9)]
+        merged = merge_scenes_to_limit(scenes, 4)
+        assert " ".join(s.narration for s in merged) == " ".join(s.narration for s in scenes)
+        assert sum(s.duration_seconds for s in merged) == 45
+
+    def test_under_limit_returns_a_copy(self) -> None:
+        """RED: no merge needed returns an equal but distinct list."""
+        scenes = [self._scene(0)]
+        merged = merge_scenes_to_limit(scenes, 5)
+        assert merged == scenes
+        assert merged is not scenes
+
+    def test_merges_keywords_and_ai_flags(self) -> None:
+        """RED: fused scenes union keywords and promote the AI signal."""
+        scenes = [
+            Scene(
+                narration="a",
+                visual_keywords=["x", "y"],
+                duration_seconds=5,
+                need_ai_generation=False,
+                ai_confidence=0.1,
+            ),
+            Scene(
+                narration="b",
+                visual_keywords=["y", "z"],
+                duration_seconds=5,
+                need_ai_generation=True,
+                ai_confidence=0.9,
+            ),
+        ]
+        merged = merge_scenes_to_limit(scenes, 1)
+        assert len(merged) == 1
+        assert merged[0].visual_keywords == ["x", "y", "z"]
+        assert merged[0].need_ai_generation is True
+        assert merged[0].ai_confidence == 0.9
+
+    def test_invalid_limit_raises(self) -> None:
+        """RED: a non-positive limit is a programmer error."""
+        with pytest.raises(ValueError, match="max_scenes"):
+            merge_scenes_to_limit([self._scene(0)], 0)

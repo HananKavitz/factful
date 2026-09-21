@@ -49,6 +49,7 @@ video:
   tts_rate: -15%
   tts_pitch: -5Hz
   script_director_model: openai/gpt-4o-mini
+  max_scenes: 32
   ai_provider: kling
   ai_model: kling/kling-1.6
   ai_api_key_env: KLING_API_KEY
@@ -58,7 +59,7 @@ video:
   stock_min_resolution: 1080p
   clip_rank_mode: llm_vision
   clip_rank_model: google/gemini-2.5-flash
-  clip_rank_max_candidates: 6
+  clip_rank_max_candidates: 10
   clip_rank_min_score: 0.4
   hybrid_ai_budget_seconds: 30
   # --- Music ---
