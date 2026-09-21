@@ -143,7 +143,7 @@ class MusicSelector:
     # ------------------------------------------------------------------
 
     def _search(self, query: str) -> list[dict[str, object]]:
-        params: dict[str, object] = {
+        params: dict[str, str | int] = {
             "q": query,
             "license": self._license_id,
             "page_size": self._max_candidates,
@@ -180,9 +180,12 @@ class MusicSelector:
                 continue
             if not track.get("url"):
                 continue
+            raw_duration = track.get("duration")
+            if not isinstance(raw_duration, (int, float, str)):
+                continue
             try:
-                duration = int(track.get("duration") or 0)
-            except (TypeError, ValueError):
+                duration = int(raw_duration)
+            except ValueError:
                 continue
             if duration < self._min_duration_ms:
                 continue
