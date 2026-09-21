@@ -80,6 +80,37 @@ def test_includes_sampling_params_when_set() -> None:
     assert captured["body"]["top_p"] == 0.9
 
 
+def test_builds_multimodal_content_when_images_provided() -> None:
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"name":"x"}'}}]})
+
+    _client(handler).chat_completion(
+        prompt="pick one",
+        schema=Dummy,
+        images=["https://img/a.jpg", "https://img/b.jpg"],
+    )
+
+    content = captured["body"]["messages"][0]["content"]
+    assert content[0] == {"type": "text", "text": "pick one"}
+    assert content[1] == {"type": "image_url", "image_url": {"url": "https://img/a.jpg"}}
+    assert content[2] == {"type": "image_url", "image_url": {"url": "https://img/b.jpg"}}
+
+
+def test_string_content_when_no_images_provided() -> None:
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"name":"x"}'}}]})
+
+    _client(handler).chat_completion(prompt="hello", schema=Dummy)
+
+    assert captured["body"]["messages"] == [{"role": "user", "content": "hello"}]
+
+
 def test_uses_full_endpoint_when_base_url_lacks_path() -> None:
     captured: dict[str, str] = {}
 

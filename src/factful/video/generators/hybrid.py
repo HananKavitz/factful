@@ -32,23 +32,26 @@ from factful.video.exceptions import (
     VideoSourceError,
 )
 from factful.video.generators.ai import AiGenerator
-from factful.video.generators.stock import build_pexels_query
+from factful.video.generators.stock import (
+    MAX_DOWNLOAD_ATTEMPTS,
+    build_pexels_query,
+    order_pexels_candidates,
+)
 from factful.video.interfaces import (
+    Scene,
     VideoGenerator,
     VideoOutput,
     VideoRequest,
     VideoScript,
 )
 from factful.video.narration import synthesize_narration
+from factful.video.rankers import ClipRanker, NoOpRanker, PexelsCandidate
 from factful.video.script_director import ScriptDirector
 
 logger = logging.getLogger(__name__)
 
 _PEXELS_API_URL = "https://api.pexels.com/videos/search"
-
-
-def _pixel_count(video: dict[str, Any]) -> int:
-    return (video.get("width") or 0) * (video.get("height") or 0)
+_DEFAULT_MAX_RANK_CANDIDATES = 6
 
 
 class HybridGenerator(VideoGenerator):
@@ -73,6 +76,8 @@ class HybridGenerator(VideoGenerator):
         _placeholder: Optional injected placeholder maker (for tests).
         _compose: Optional injected compose callable (for tests).
         _trim: Optional injected clip trim/loop callable (for tests).
+        ranker: Clip ranker for Pexels results (default: keep Pexels order).
+        clip_rank_max_candidates: How many Pexels results to send to the ranker.
     """
 
     def __init__(
@@ -96,6 +101,8 @@ class HybridGenerator(VideoGenerator):
         _placeholder: Callable[..., Any] | None = None,
         _compose: Callable[..., Any] | None = None,
         _trim: Callable[..., Any] | None = None,
+        ranker: ClipRanker | None = None,
+        clip_rank_max_candidates: int = _DEFAULT_MAX_RANK_CANDIDATES,
     ) -> None:
         self._director = script_director
         self._pexels_api_key = pexels_api_key
@@ -115,6 +122,8 @@ class HybridGenerator(VideoGenerator):
         self._placeholder = _placeholder or make_placeholder_clip
         self._compose = _compose or compose_final_video
         self._trim = _trim or trim_or_loop_clip
+        self._ranker = ranker or NoOpRanker()
+        self._clip_rank_max_candidates = clip_rank_max_candidates
 
     # ------------------------------------------------------------------
     # VideoGenerator protocol
@@ -260,7 +269,7 @@ class HybridGenerator(VideoGenerator):
 
     def _try_fetch_stock_clip(
         self,
-        scene: object,
+        scene: Scene,
         idx: int,
         workdir: Path,
         duration: float,
@@ -289,28 +298,35 @@ class HybridGenerator(VideoGenerator):
             return None
 
         try:
-            urls = self._search_pexels(query, page=idx + 1)
+            candidates = self._search_pexels(query, page=idx + 1)
         except VideoSourceError:
             logger.warning("Pexels search failed for '%s'", query)
             return None
 
-        if not urls:
-            logger.info("No Pexels results for '%s'", query)
+        ranked = self._ranker.rank(scene, candidates[: self._clip_rank_max_candidates])
+        plain_urls = [link for c in ranked for link in c.links]
+        if not plain_urls:
+            logger.info("No acceptable Pexels result for '%s'", query)
             return None
 
-        # Skip already-used URLs; pick the first fresh one
-        fresh_url = next((u for u in urls if u not in used_urls), None)
-        if fresh_url is None:
+        # Skip already-used URLs; try the best fresh candidates in order.
+        fresh_urls = [u for u in plain_urls if u not in used_urls]
+        if not fresh_urls:
             logger.info("All Pexels results for '%s' already used — skipping", query)
             return None
 
-        used_urls.add(fresh_url)
-
         dest = workdir / f"stock_{idx:04d}.mp4"
-        try:
-            self._download_clip(fresh_url, dest)
-        except VideoSourceError:
-            logger.warning("Failed to download stock clip for scene %d", idx)
+        downloaded = False
+        for url in fresh_urls[:MAX_DOWNLOAD_ATTEMPTS]:
+            used_urls.add(url)
+            try:
+                self._download_clip(url, dest)
+                downloaded = True
+                break
+            except VideoSourceError:
+                logger.warning("Failed to download stock clip for scene %d from %s", idx, url)
+
+        if not downloaded:
             return None
 
         trimmed = workdir / f"stock_{idx:04d}_trimmed.mp4"
@@ -369,21 +385,21 @@ class HybridGenerator(VideoGenerator):
 
         return dest
 
-    def _search_pexels(self, query: str, page: int = 1) -> list[str]:
-        """Search Pexels for stock video clips matching the query.
+    def _search_pexels(self, query: str, page: int = 1) -> list[PexelsCandidate]:
+        """Search Pexels for stock video candidates.
 
         Args:
             query: Search query string.
             page: Pexels result page (used to rotate results per scene).
 
-        Returns a list of download URLs sorted by quality (best first).
+        Returns candidates in Pexels relevance order, each with ranked links.
         """
         params: dict[str, Any] = {
             "query": query,
             "per_page": 5,
             "page": page,
             "orientation": "landscape",
-            "size": "large",
+            "size": "medium",
         }
 
         try:
@@ -403,28 +419,7 @@ class HybridGenerator(VideoGenerator):
         if not videos:
             return []
 
-        candidates: list[dict[str, Any]] = []
-        for video in videos:
-            for vf in video.get("video_files", []):
-                w = vf.get("width") or 0
-                h = vf.get("height") or 0
-                if w * h >= 1920 * 1080 and vf.get("link"):
-                    candidates.append({"width": w, "height": h, "link": vf["link"]})
-
-        if not candidates:
-            for video in videos:
-                for vf in video.get("video_files", []):
-                    if vf.get("link"):
-                        candidates.append(
-                            {
-                                "width": vf.get("width") or 0,
-                                "height": vf.get("height") or 0,
-                                "link": vf["link"],
-                            }
-                        )
-
-        candidates.sort(key=_pixel_count, reverse=True)
-        return [c["link"] for c in candidates]
+        return order_pexels_candidates(videos)
 
     def _download_clip(self, url: str, dest: Path) -> Path:
         """Download a single video clip to disk.

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Protocol
 
 import httpx
@@ -36,6 +36,19 @@ def _response_format(schema: type[BaseModel]) -> dict[str, object]:
     }
 
 
+def _message_content(prompt: str, images: Sequence[str] | None) -> str | list[dict[str, object]]:
+    """Build an OpenAI-compatible message content value.
+
+    Returns the plain prompt string when no images are supplied, or a list
+    of content blocks (text first, then image URLs) for multimodal models.
+    """
+    if not images:
+        return prompt
+    content: list[dict[str, object]] = [{"type": "text", "text": prompt}]
+    content.extend({"type": "image_url", "image_url": {"url": url}} for url in images)
+    return content
+
+
 class ChatClient(Protocol):
     def chat_completion(
         self,
@@ -45,6 +58,7 @@ class ChatClient(Protocol):
         temperature: float | None = None,
         top_p: float | None = None,
         max_tokens: int | None = None,
+        images: Sequence[str] | None = None,
     ) -> BaseModel: ...
 
 
@@ -90,6 +104,7 @@ class OpenRouterClient:
         temperature: float | None = None,
         top_p: float | None = None,
         max_tokens: int | None = None,
+        images: Sequence[str] | None = None,
     ) -> BaseModel:
         client = self._client or httpx.Client(timeout=self._timeout)
         attempts = self._max_retries + 1
@@ -97,7 +112,7 @@ class OpenRouterClient:
             try:
                 payload: dict[str, object] = {
                     "model": self._model,
-                    "messages": [{"role": "user", "content": prompt}],
+                    "messages": [{"role": "user", "content": _message_content(prompt, images)}],
                     "response_format": _response_format(schema),
                 }
                 if temperature is not None:

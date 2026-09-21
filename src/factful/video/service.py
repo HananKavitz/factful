@@ -28,6 +28,7 @@ from factful.video.interfaces import (
     VideoRequest,
     VideoScript,
 )
+from factful.video.rankers import ClipRanker, LlmVisionRanker, NoOpRanker
 from factful.video.script_director import ScriptDirector
 from factful.video.settings import VideoSettings
 
@@ -82,6 +83,20 @@ def build_video_service(
     )
     script_director = ScriptDirector(client=llm_client)
 
+    # Build the Pexels clip ranker
+    ranker: ClipRanker
+    if settings.clip_rank_mode == "llm_vision":
+        ranker = LlmVisionRanker(
+            client=OpenRouterClient(
+                model=settings.clip_rank_model,
+                api_key=llm_api_key,
+                base_url=llm_base_url,
+            ),
+            min_score=settings.clip_rank_min_score,
+        )
+    else:
+        ranker = NoOpRanker()
+
     # Build the stock generator
     pexels_api_key = env.get(settings.stock_api_key_env, "")
     stock_generator = StockGenerator(
@@ -93,6 +108,8 @@ def build_video_service(
         voice=settings.voice,
         tts_rate=settings.tts_rate,
         tts_pitch=settings.tts_pitch,
+        ranker=ranker,
+        clip_rank_max_candidates=settings.clip_rank_max_candidates,
     )
 
     # Build the AI generator
@@ -127,6 +144,8 @@ def build_video_service(
         ai_budget_seconds=settings.hybrid_ai_budget_seconds,
         model=settings.ai_model,
         clip_duration_seconds=settings.ai_clip_duration_seconds,
+        ranker=ranker,
+        clip_rank_max_candidates=settings.clip_rank_max_candidates,
     )
 
     # Registry of available strategies

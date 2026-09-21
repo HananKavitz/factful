@@ -101,7 +101,7 @@ class TestStockGeneratorSearch:
 
         urls = gen._search_pexels("sunset ocean", min_results=1)
         assert len(urls) >= 1
-        assert all(u.startswith("https://") for u in urls)
+        assert all(c.link.startswith("https://") for c in urls)
 
     def test_search_sends_correct_headers(self) -> None:
         """RED: the Pexels API call should include the auth header."""
@@ -143,7 +143,86 @@ class TestStockGeneratorSearch:
         assert params.get("per_page") == 15
         assert params.get("page") == 1
         assert params.get("orientation") == "landscape"
-        assert params.get("size") == "large"
+        assert params.get("size") == "medium"
+
+    def test_search_prefers_smallest_1080p_candidate(self) -> None:
+        """RED: rank 1080p ahead of 4K to avoid huge downloads."""
+        mock_client = MagicMock(spec=httpx.Client)
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "total_results": 1,
+            "videos": [
+                {
+                    "id": 1,
+                    "width": 3840,
+                    "height": 2160,
+                    "duration": 10,
+                    "video_files": [
+                        {"width": 3840, "height": 2160, "link": "https://example.com/4k.mp4"},
+                        {"width": 1920, "height": 1080, "link": "https://example.com/1080p.mp4"},
+                    ],
+                }
+            ],
+        }
+        mock_client.get.return_value = mock_response
+
+        gen = StockGenerator(
+            pexels_api_key="key",
+            script_director=MagicMock(),
+            _http_client=mock_client,
+        )
+
+        urls = gen._search_pexels("x", min_results=1)
+        assert urls[0].links == ("https://example.com/1080p.mp4", "https://example.com/4k.mp4")
+
+    def test_search_preserves_pexels_relevance_order(self) -> None:
+        """RED: videos keep Pexels relevance order; resolution only ranks files within a video."""
+        mock_client = MagicMock(spec=httpx.Client)
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "total_results": 2,
+            "videos": [
+                {
+                    "id": 1,
+                    "width": 2560,
+                    "height": 1440,
+                    "duration": 10,
+                    "video_files": [
+                        {
+                            "width": 2560,
+                            "height": 1440,
+                            "link": "https://example.com/top_hit.mp4",
+                        }
+                    ],
+                },
+                {
+                    "id": 2,
+                    "width": 1920,
+                    "height": 1080,
+                    "duration": 10,
+                    "video_files": [
+                        {
+                            "width": 1920,
+                            "height": 1080,
+                            "link": "https://example.com/less_relevant.mp4",
+                        }
+                    ],
+                },
+            ],
+        }
+        mock_client.get.return_value = mock_response
+
+        gen = StockGenerator(
+            pexels_api_key="key",
+            script_director=MagicMock(),
+            _http_client=mock_client,
+        )
+
+        urls = gen._search_pexels("x", min_results=1)
+        assert urls[0].link == "https://example.com/top_hit.mp4"
+        assert urls[1].link == "https://example.com/less_relevant.mp4"
 
     def test_search_zero_results_returns_empty(self) -> None:
         """RED: when Pexels returns 0 results, an empty list is returned."""
@@ -246,6 +325,184 @@ class TestStockGeneratorDownload:
         dest = tmp_path / "clip.mp4"
         with pytest.raises(VideoSourceError, match="failed to download"):
             gen._download_clip("https://example.com/clip.mp4", dest)
+
+
+class TestStockGeneratorRanker:
+    """The injected ranker decides which candidates are downloaded."""
+
+    def test_downloads_rankers_top_choice(self, tmp_path: Path) -> None:
+        """RED: the ranker's preferred candidate is downloaded, not Pexels' first."""
+        from factful.video.rankers import PexelsCandidate
+
+        search_resp = MagicMock(spec=httpx.Response)
+        search_resp.status_code = 200
+        search_resp.json.return_value = {
+            "total_results": 2,
+            "videos": [
+                {
+                    "id": 1,
+                    "image": "https://img/1.jpg",
+                    "video_files": [
+                        {
+                            "width": 1920,
+                            "height": 1080,
+                            "link": "https://example.com/first.mp4",
+                        }
+                    ],
+                },
+                {
+                    "id": 2,
+                    "image": "https://img/2.jpg",
+                    "video_files": [
+                        {
+                            "width": 1920,
+                            "height": 1080,
+                            "link": "https://example.com/second.mp4",
+                        }
+                    ],
+                },
+            ],
+        }
+        downloaded: list[str] = []
+
+        def _get(url: str, *args: Any, **kwargs: Any) -> Any:
+            if "search" in url:
+                return search_resp
+            downloaded.append(url)
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.content = b"clip"
+            return resp
+
+        mock_client = MagicMock(spec=httpx.Client)
+        mock_client.get.side_effect = _get
+
+        ranker = MagicMock()
+        ranker.rank.return_value = [
+            PexelsCandidate(
+                video_id=2,
+                thumbnail_url="https://img/2.jpg",
+                links=("https://example.com/second.mp4",),
+            )
+        ]
+
+        trimmed = tmp_path / "scene_0000_trimmed.mp4"
+        gen = StockGenerator(
+            pexels_api_key="key",
+            script_director=MagicMock(),
+            _http_client=mock_client,
+            _trim=MagicMock(return_value=trimmed),
+            _placeholder=MagicMock(),
+            ranker=ranker,
+        )
+        scene = SceneOut(
+            narration="Ocean waves crash.",
+            visual_keywords=["ocean"],
+            shot_type="wide",
+            duration_seconds=5,
+            need_ai_generation=False,
+            ai_confidence=0.0,
+        )
+
+        result = gen._fetch_scene_clip(scene, 0, tmp_path, 5.0, set(), set(), "Title")
+
+        assert result == trimmed
+        assert downloaded == ["https://example.com/second.mp4"]
+
+    def test_no_acceptable_candidate_uses_placeholder(self, tmp_path: Path) -> None:
+        """RED: an empty ranker result gates the scene to a placeholder, no download."""
+        search_resp = MagicMock(spec=httpx.Response)
+        search_resp.status_code = 200
+        search_resp.json.return_value = _pexels_response_json(total_results=1)
+        mock_client = MagicMock(spec=httpx.Client)
+        mock_client.get.return_value = search_resp
+
+        ranker = MagicMock()
+        ranker.rank.return_value = []
+        placeholder = tmp_path / "ph.mp4"
+        gen = StockGenerator(
+            pexels_api_key="key",
+            script_director=MagicMock(),
+            _http_client=mock_client,
+            _placeholder=MagicMock(return_value=placeholder),
+            _trim=MagicMock(),
+            ranker=ranker,
+        )
+        scene = SceneOut(
+            narration="Unrelated concept.",
+            visual_keywords=["unicorn"],
+            shot_type="wide",
+            duration_seconds=5,
+            need_ai_generation=False,
+            ai_confidence=0.0,
+        )
+
+        result = gen._fetch_scene_clip(scene, 0, tmp_path, 5.0, set(), set(), "Title")
+
+        assert result == placeholder
+        assert mock_client.get.call_count == 1  # search only, no download
+
+
+class TestStockGeneratorFetchRetry:
+    """A failed clip download falls through to the next candidate."""
+
+    def test_retries_next_candidate_on_download_failure(self, tmp_path: Path) -> None:
+        """RED: a timeout on the first URL uses the next fresh candidate."""
+        search_resp = MagicMock(spec=httpx.Response)
+        search_resp.status_code = 200
+        search_resp.json.return_value = {
+            "total_results": 1,
+            "videos": [
+                {
+                    "id": 1,
+                    "width": 1920,
+                    "height": 1080,
+                    "duration": 10,
+                    "video_files": [
+                        {"width": 1920, "height": 1080, "link": "https://example.com/bad.mp4"},
+                        {"width": 1920, "height": 1080, "link": "https://example.com/good.mp4"},
+                    ],
+                }
+            ],
+        }
+
+        good_resp = MagicMock(spec=httpx.Response)
+        good_resp.status_code = 200
+        type(good_resp).content = PropertyMock(return_value=b"clip")
+
+        def _get(url: str, *args: Any, **kwargs: Any) -> Any:
+            if "search" in url:
+                return search_resp
+            if url.endswith("/bad.mp4"):
+                raise httpx.RequestError("timeout")
+            return good_resp
+
+        mock_client = MagicMock(spec=httpx.Client)
+        mock_client.get.side_effect = _get
+
+        trimmed = tmp_path / "scene_0000_trimmed.mp4"
+        mock_placeholder = MagicMock()
+        gen = StockGenerator(
+            pexels_api_key="key",
+            script_director=MagicMock(),
+            _http_client=mock_client,
+            _trim=MagicMock(return_value=trimmed),
+            _placeholder=mock_placeholder,
+        )
+
+        scene = SceneOut(
+            narration="Ocean waves crash on the shore.",
+            visual_keywords=["ocean"],
+            shot_type="wide",
+            duration_seconds=5,
+            need_ai_generation=False,
+            ai_confidence=0.0,
+        )
+
+        result = gen._fetch_scene_clip(scene, 0, tmp_path, 5.0, set(), set(), "Title")
+
+        assert result == trimmed
+        mock_placeholder.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

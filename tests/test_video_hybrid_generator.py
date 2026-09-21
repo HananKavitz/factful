@@ -286,3 +286,136 @@ class TestHybridGeneratorGenerate:
                 tmp_path / "final.mp4",
                 script=script,
             )
+
+
+class TestHybridPexelsOrder:
+    """The hybrid generator shares the relevance-preserving Pexels ordering."""
+
+    def test_search_preserves_pexels_relevance_order(self) -> None:
+        """RED: hybrid keeps Pexels video order instead of re-sorting by size."""
+        search_resp = MagicMock(spec=httpx.Response)
+        search_resp.status_code = 200
+        search_resp.json.return_value = {
+            "total_results": 2,
+            "videos": [
+                {
+                    "id": 1,
+                    "video_files": [
+                        {
+                            "width": 2560,
+                            "height": 1440,
+                            "link": "https://example.com/top_hit.mp4",
+                        }
+                    ],
+                },
+                {
+                    "id": 2,
+                    "video_files": [
+                        {
+                            "width": 1920,
+                            "height": 1080,
+                            "link": "https://example.com/less_relevant.mp4",
+                        }
+                    ],
+                },
+            ],
+        }
+        mock_http = MagicMock(spec=httpx.Client)
+        mock_http.get.return_value = search_resp
+
+        gen = HybridGenerator(pexels_api_key="k", _http_client=mock_http)
+
+        urls = gen._search_pexels("x")
+        assert urls[0].link == "https://example.com/top_hit.mp4"
+        assert urls[1].link == "https://example.com/less_relevant.mp4"
+
+
+class TestHybridStockRanker:
+    """A ranker rejection routes the hybrid scene away from stock."""
+
+    def test_ranker_rejection_returns_none(self, tmp_path: Path) -> None:
+        """RED: when no candidate is acceptable, hybrid skips the stock clip."""
+        search_resp = MagicMock(spec=httpx.Response)
+        search_resp.status_code = 200
+        search_resp.json.return_value = _pexels_response(total=1)
+        mock_http = MagicMock(spec=httpx.Client)
+        mock_http.get.return_value = search_resp
+
+        ranker = MagicMock()
+        ranker.rank.return_value = []
+        gen = HybridGenerator(
+            pexels_api_key="k",
+            _http_client=mock_http,
+            _trim=MagicMock(),
+            ranker=ranker,
+        )
+        scene = SceneOut(
+            narration="Unrelated concept.",
+            visual_keywords=["concept"],
+            shot_type="close_up",
+            duration_seconds=5,
+            need_ai_generation=False,
+            ai_confidence=0.0,
+        )
+
+        result = gen._try_fetch_stock_clip(scene, 0, tmp_path, 5.0, set(), set(), "Title")
+
+        assert result is None
+        assert mock_http.get.call_count == 1  # search only, no download
+
+
+class TestHybridStockRetry:
+    """Stock fallback retries the next candidate when a download fails."""
+
+    def test_retries_next_candidate_on_download_failure(self, tmp_path: Path) -> None:
+        """RED: a timeout on the first URL uses the next fresh candidate."""
+        search_resp = MagicMock(spec=httpx.Response)
+        search_resp.status_code = 200
+        search_resp.json.return_value = {
+            "total_results": 1,
+            "videos": [
+                {
+                    "id": 1,
+                    "width": 1920,
+                    "height": 1080,
+                    "duration": 10,
+                    "video_files": [
+                        {"width": 1920, "height": 1080, "link": "https://example.com/bad.mp4"},
+                        {"width": 1920, "height": 1080, "link": "https://example.com/good.mp4"},
+                    ],
+                }
+            ],
+        }
+
+        good_resp = MagicMock()
+        good_resp.status_code = 200
+        good_resp.content = b"clip"
+
+        def _get(url: str, *args: Any, **kwargs: Any) -> Any:
+            if "search" in url:
+                return search_resp
+            if url.endswith("/bad.mp4"):
+                raise httpx.RequestError("timeout")
+            return good_resp
+
+        mock_http = MagicMock(spec=httpx.Client)
+        mock_http.get.side_effect = _get
+
+        trimmed = tmp_path / "stock_0000_trimmed.mp4"
+        gen = HybridGenerator(
+            pexels_api_key="k",
+            _http_client=mock_http,
+            _trim=MagicMock(return_value=trimmed),
+        )
+        scene = SceneOut(
+            narration="Ocean waves crash on the shore.",
+            visual_keywords=["ocean"],
+            shot_type="wide",
+            duration_seconds=5,
+            need_ai_generation=False,
+            ai_confidence=0.0,
+        )
+
+        result = gen._try_fetch_stock_clip(scene, 0, tmp_path, 5.0, set(), set(), "Title")
+
+        assert result == trimmed

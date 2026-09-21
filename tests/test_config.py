@@ -116,3 +116,31 @@ def test_writer_sampling_rejects_out_of_bounds() -> None:
 def test_unknown_key_fails_fast() -> None:
     with pytest.raises(ValidationError):
         Settings.model_validate({"pipeline": {"max_passes": 3}, "typo_key": 1})
+
+
+def test_clip_rank_defaults() -> None:
+    video = Settings().video
+    assert video.clip_rank_mode == "none"
+    assert video.clip_rank_model == "google/gemini-2.5-flash"
+    assert video.clip_rank_max_candidates == 6
+    assert video.clip_rank_min_score == 0.4
+
+
+def test_clip_rank_overridable() -> None:
+    video = Settings.model_validate(
+        {"video": {"clip_rank_mode": "llm_vision", "clip_rank_min_score": 0.6}}
+    ).video
+    assert video.clip_rank_mode == "llm_vision"
+    assert video.clip_rank_min_score == 0.6
+
+
+def test_clip_rank_rejects_bad_mode() -> None:
+    with pytest.raises(ValidationError):
+        Settings.model_validate({"video": {"clip_rank_mode": "lexical"}})
+
+
+def test_clip_rank_rejects_out_of_bounds_score() -> None:
+    with pytest.raises(ValidationError):
+        Settings.model_validate({"video": {"clip_rank_min_score": 1.5}})
+    with pytest.raises(ValidationError):
+        Settings.model_validate({"video": {"clip_rank_min_score": -0.1}})
